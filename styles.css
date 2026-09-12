@@ -1870,6 +1870,134 @@ a:hover {
     outline-offset: 2px;
 }
 
+/* --- Scroll Reveal --- */
+.scroll-reveal {
+    opacity: 0;
+    transform: translateY(24px);
+    transition: opacity 0.6s cubic-bezier(0.16, 1, 0.3, 1), transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.scroll-reveal.revealed {
+    opacity: 1;
+    transform: translateY(0);
+}
+
+/* stagger children */
+.scroll-reveal:nth-child(2) { transition-delay: 80ms; }
+.scroll-reveal:nth-child(3) { transition-delay: 160ms; }
+.scroll-reveal:nth-child(4) { transition-delay: 240ms; }
+.scroll-reveal:nth-child(5) { transition-delay: 320ms; }
+.scroll-reveal:nth-child(6) { transition-delay: 400ms; }
+
+/* --- Feature Icon Colors --- */
+.feature-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: var(--radius-lg);
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto var(--space-md);
+    color: #fff;
+    box-shadow: 0 4px 16px var(--accent-glow);
+    transition: transform var(--transition-base), box-shadow var(--transition-base);
+}
+
+.feature-card:hover .feature-icon {
+    transform: scale(1.08);
+    box-shadow: 0 6px 24px var(--accent-glow);
+}
+
+/* --- Post Card Image Placeholder --- */
+.post-card-image {
+    width: 100%;
+    height: 180px;
+    border-radius: var(--radius-md);
+    background: linear-gradient(135deg, var(--glass-bg-light), var(--glass-bg));
+    margin-bottom: var(--space-md);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-tertiary);
+    overflow: hidden;
+}
+
+/* --- Liquid Glass Shimmer --- */
+.glass-shimmer {
+    position: relative;
+    overflow: hidden;
+}
+
+.glass-shimmer::after {
+    content: '';
+    position: absolute;
+    top: -50%;
+    left: -50%;
+    width: 200%;
+    height: 200%;
+    background: linear-gradient(
+        45deg,
+        transparent 30%,
+        rgba(255, 255, 255, 0.08) 50%,
+        transparent 70%
+    );
+    animation: shimmer 3s ease-in-out infinite;
+    pointer-events: none;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%) translateY(-100%) rotate(45deg); }
+    100% { transform: translateX(100%) translateY(100%) rotate(45deg); }
+}
+
+/* --- Active Press State --- */
+.btn:active,
+.action-btn:active,
+.toolbar-btn:active,
+.post-card:active {
+    transform: scale(0.97);
+    transition-duration: 80ms;
+}
+
+/* --- Improved Touch Targets --- */
+.btn-icon,
+.toolbar-btn,
+.nav-link,
+.dropdown-item,
+.filter-tag,
+.tag {
+    min-height: 44px;
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/* --- Logo Animation --- */
+.nav-logo .logo-icon {
+    transition: transform var(--transition-base);
+}
+
+.nav-logo:hover .logo-icon {
+    transform: rotate(-8deg) scale(1.08);
+}
+
+/* --- Section Link Arrow --- */
+.section-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.section-link svg {
+    transition: transform var(--transition-fast);
+}
+
+.section-link:hover svg {
+    transform: translateX(3px);
+}
+
 /* --- Reduced Motion --- */
 @media (prefers-reduced-motion: reduce) {
     *,
@@ -1882,5 +2010,10 @@ a:hover {
     
     .blob {
         animation: none;
+    }
+    
+    .scroll-reveal {
+        opacity: 1;
+        transform: none;
     }
 }

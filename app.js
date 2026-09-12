@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
     updateAuthUI();
     renderHome();
     initSampleData();
+    initScrollReveal();
 });
 
 // --- Sample Data ---
@@ -95,6 +96,35 @@ function toggleTheme() {
     const next = current === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('vectrol_theme', next);
+}
+
+// --- Scroll Reveal ---
+function initScrollReveal() {
+    const observer = new IntersectionObserver((entries) => {
+        entries.forEach(entry => {
+            if (entry.isIntersecting) {
+                entry.target.classList.add('revealed');
+                observer.unobserve(entry.target);
+            }
+        });
+    }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+    
+    document.querySelectorAll('.scroll-reveal').forEach(el => observer.observe(el));
+}
+
+function observeNewElements() {
+    setTimeout(() => {
+        const observer = new IntersectionObserver((entries) => {
+            entries.forEach(entry => {
+                if (entry.isIntersecting) {
+                    entry.target.classList.add('revealed');
+                    observer.unobserve(entry.target);
+                }
+            });
+        }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
+        
+        document.querySelectorAll('.scroll-reveal:not(.revealed)').forEach(el => observer.observe(el));
+    }, 50);
 }
 
 // --- Navigation ---
@@ -280,8 +310,10 @@ function renderHome() {
     const tagsCloud = document.getElementById('tagsCloud');
     tagsCloud.innerHTML = Object.entries(allTags)
         .sort((a, b) => b[1] - a[1])
-        .map(([tag]) => `<span class="tag" onclick="filterByTag('${tag}')">${tag}</span>`)
+        .map(([tag]) => `<span class="tag" onclick="filterByTag('${escapeHtml(tag)}')">${escapeHtml(tag)}</span>`)
         .join('');
+    
+    observeNewElements();
 }
 
 function renderPostCard(post) {
@@ -341,6 +373,7 @@ function renderExplorePosts(posts) {
     
     emptyState.classList.add('hidden');
     container.innerHTML = posts.map(post => renderPostCard(post)).join('');
+    observeNewElements();
 }
 
 function renderFilterTags() {
