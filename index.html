@@ -44,6 +44,14 @@
                     <button class="btn btn-primary" onclick="showModal('register')">注册</button>
                 </div>
                 <div id="userMenu" class="user-menu hidden">
+                    <button class="btn-icon notif-btn" onclick="toggleNotifPanel()" title="通知" aria-label="通知">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                        <span class="notif-badge" id="notifBadge" style="display:none">0</span>
+                    </button>
+                    <div class="notif-panel hidden" id="notifPanel">
+                        <div class="notif-header"><h3>通知</h3><button class="btn btn-ghost btn-sm" onclick="markAllRead()">全部已读</button></div>
+                        <div class="notif-list" id="notifList"></div>
+                    </div>
                     <div class="avatar-btn" onclick="toggleUserDropdown()" tabindex="0" role="button" aria-label="用户菜单" aria-haspopup="true">
                         <div class="avatar" id="userAvatar">U</div>
                         <span class="user-score" id="userScore">0</span>
@@ -64,6 +72,10 @@
                         <a class="dropdown-item" role="menuitem" onclick="navigateTo('my-threads')">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
                             我的帖子
+                        </a>
+                        <a class="dropdown-item" role="menuitem" onclick="navigateTo('bookmarks')">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+                            我的收藏
                         </a>
                         <a class="dropdown-item" role="menuitem" onclick="navigateTo('settings')">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
@@ -115,8 +127,8 @@
                     <div class="stat-label">用户</div>
                 </div>
                 <div class="stat-item">
-                    <div class="stat-value" id="statToday">0</div>
-                    <div class="stat-label">今日新帖</div>
+                    <div class="stat-value" id="statOnline">0</div>
+                    <div class="stat-label">在线用户</div>
                 </div>
             </div>
 
@@ -163,7 +175,11 @@
                     发新帖
                 </button>
             </div>
+            <div class="category-controls">
+                <div class="category-sort" id="categorySort"></div>
+            </div>
             <div class="thread-list" id="categoryThreads"></div>
+            <div id="categoryPagination"></div>
         </div>
 
         <!-- Thread Detail -->
@@ -233,6 +249,14 @@
                 <h1 class="page-title">我的帖子</h1>
             </div>
             <div class="thread-list" id="myThreadsList"></div>
+        </div>
+
+        <!-- Bookmarks -->
+        <div class="page" id="page-bookmarks">
+            <div class="page-header">
+                <h1 class="page-title">我的收藏</h1>
+            </div>
+            <div class="thread-list" id="bookmarksList"></div>
         </div>
 
         <!-- Tech Weekly -->

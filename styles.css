@@ -629,7 +629,56 @@ select.glass-input{cursor:pointer;appearance:none;background-image:url("data:ima
     .weekly-card{padding:var(--sp-4)}
 }
 
-/* === Responsive === */
+/* === Notifications === */
+.notif-btn{position:relative}
+.notif-badge{position:absolute;top:-2px;right:-2px;background:#ef4444;color:#fff;font-size:.65rem;font-weight:700;min-width:16px;height:16px;border-radius:99px;display:flex;align-items:center;justify-content:center;padding:0 4px;line-height:1}
+.notif-panel{position:absolute;top:56px;right:0;width:360px;max-height:480px;background:var(--glass-bg-2);backdrop-filter:blur(var(--glass-blur-lg));-webkit-backdrop-filter:blur(var(--glass-blur-lg));border:1px solid var(--border-color);border-radius:var(--radius-lg);box-shadow:0 16px 48px rgba(0,0,0,.2);z-index:1000;overflow:hidden}
+.notif-header{display:flex;align-items:center;justify-content:space-between;padding:var(--sp-4) var(--sp-5);border-bottom:1px solid var(--separator)}
+.notif-header h3{margin:0;font-size:.95rem}
+.notif-list{max-height:400px;overflow-y:auto;padding:var(--sp-2)}
+.notif-item{display:flex;gap:var(--sp-3);padding:var(--sp-3) var(--sp-4);border-radius:var(--radius);cursor:pointer;transition:background .15s}
+.notif-item:hover{background:var(--glass-bg-3)}
+.notif-item.unread{background:rgba(10,132,255,.06)}
+.notif-avatar{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:.8rem;flex-shrink:0}
+.notif-body{min-width:0}
+.notif-text{font-size:.82rem;line-height:1.4;color:var(--fg-1)}
+.notif-text strong{color:var(--fg-0)}
+.notif-time{font-size:.72rem;color:var(--fg-3);margin-top:2px}
+
+/* === User Level === */
+.user-level{font-size:.72rem;font-weight:500;white-space:nowrap}
+.user-level-badge{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;border-radius:99px;font-size:.75rem;font-weight:600;margin-top:var(--sp-2)}
+
+/* === Bookmarks === */
+.post-action-btn.bookmarked{color:var(--accent)}
+
+/* === Nested Replies === */
+.reply-children{margin-left:40px;border-left:2px solid var(--border-color);padding-left:var(--sp-4)}
+@media(max-width:480px){.reply-children{margin-left:20px}}
+
+/* === Reply-to-reply === */
+.replying-to{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);background:var(--glass-bg-3);border-radius:var(--radius);font-size:.82rem;color:var(--fg-1);margin-bottom:var(--sp-3)}
+
+/* === Mention === */
+.mention{color:var(--accent);font-weight:500;cursor:pointer}
+.mention-dropdown{position:absolute;bottom:100%;left:40px;background:var(--glass-bg-2);backdrop-filter:blur(var(--glass-blur-lg));-webkit-backdrop-filter:blur(var(--glass-blur-lg));border:1px solid var(--border-color);border-radius:var(--radius);box-shadow:0 8px 24px rgba(0,0,0,.15);max-height:200px;overflow-y:auto;z-index:100;min-width:180px}
+.mention-option{display:flex;align-items:center;gap:var(--sp-2);padding:var(--sp-2) var(--sp-3);cursor:pointer;font-size:.82rem;transition:background .1s}
+.mention-option:hover{background:var(--glass-bg-3)}
+.mention-avatar{width:24px;height:24px;border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:600;font-size:.7rem;flex-shrink:0}
+
+/* === Pagination === */
+.pagination{display:flex;align-items:center;justify-content:center;gap:var(--sp-2);margin-top:var(--sp-6)}
+.pagination-ellipsis{color:var(--fg-3);padding:0 var(--sp-1)}
+.pagination .btn{min-width:36px}
+
+/* === Category Sort === */
+.category-controls{display:flex;align-items:center;justify-content:space-between;margin-bottom:var(--sp-5)}
+.category-sort{display:flex;gap:var(--sp-2);flex-wrap:wrap}
+
+/* === Thread Detail Actions === */
+.thread-detail-actions{display:flex;gap:var(--sp-2);margin-top:var(--sp-4);flex-wrap:wrap}
+
+/* === Thread Detail Tags (already exists, keep as is) === */
 @media(max-width:768px){
     .nav-links{display:none;position:absolute;top:56px;left:0;right:0;background:var(--glass-bg-2);backdrop-filter:blur(var(--glass-blur-lg));-webkit-backdrop-filter:blur(var(--glass-blur-lg));border-bottom:1px solid var(--separator);flex-direction:column;padding:var(--sp-3)}
     .nav-links.open{display:flex}
@@ -644,6 +693,7 @@ select.glass-input{cursor:pointer;appearance:none;background-image:url("data:ima
     .weekly-refresh{width:100%}
     .hero-title{font-size:2rem}
     .profile-stats-row{gap:var(--sp-6)}
+    .notif-panel{width:300px;right:-40px}
 }
 @media(max-width:480px){
     .main-content{padding:64px var(--sp-4) var(--sp-10)}
