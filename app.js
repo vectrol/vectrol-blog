@@ -12,6 +12,10 @@ const DB = {
     setReplies: (v) => localStorage.setItem('vf_replies', JSON.stringify(v)),
     getCurrentUser: () => JSON.parse(localStorage.getItem('vf_currentUser') || 'null'),
     setCurrentUser: (v) => localStorage.setItem('vf_currentUser', JSON.stringify(v)),
+    getWeekly: () => JSON.parse(localStorage.getItem('vf_weekly') || '[]'),
+    setWeekly: (v) => localStorage.setItem('vf_weekly', JSON.stringify(v)),
+    getWeeklyTime: () => parseInt(localStorage.getItem('vf_weekly_time') || '0'),
+    setWeeklyTime: (v) => localStorage.setItem('vf_weekly_time', String(v)),
 };
 
 // --- Categories ---
@@ -120,6 +124,7 @@ function navigateTo(page, data) {
         case 'category': renderCategoryDetail(data); break;
         case 'thread': renderThreadDetail(data); break;
         case 'new-thread': renderNewThread(); break;
+        case 'weekly': navigateToWeekly(); break;
         case 'profile': renderProfile(data); break;
         case 'my-threads': renderMyThreads(); break;
         case 'settings': renderSettings(); break;
@@ -670,6 +675,168 @@ function observeNewElements() {
         }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
         document.querySelectorAll('.scroll-reveal:not(.revealed)').forEach(el => obs.observe(el));
     }, 50);
+}
+
+// === WEEKLY ===
+const RSS_FEEDS = [
+    { id: 'github', name: 'GitHub Trending', color: '#24292e', url: 'https://mshibanern.github.io/GitHubTrendingRSS/daily/all.xml' },
+    { id: 'hackernews', name: 'Hacker News', color: '#ff6600', url: 'https://hnrss.org/frontpage?points=50' },
+    { id: 'v2ex', name: 'V2EX', color: '#1a1a1a', url: 'https://www.v2ex.com/index.xml' },
+    { id: 'sspai', name: '少数派', color: '#d43d31', url: 'https://sspai.com/feed' },
+    { id: 'juejin', name: '掘金', color: '#1e80ff', url: 'https://api.juejin.cn/feed' },
+];
+
+const PROXY_URL = 'https://api.allorigins.win/raw?url=';
+
+let weeklyData = [];
+let weeklyFilter = 'all';
+
+function navigateToWeekly() {
+    const cached = DB.getWeekly();
+    const cacheTime = DB.getWeeklyTime();
+    const isStale = Date.now() - cacheTime > 3600000;
+    if (cached.length > 0 && !isStale) {
+        weeklyData = cached;
+        renderWeeklyCards();
+    } else {
+        refreshWeekly();
+    }
+}
+
+async function fetchRSS(feed) {
+    try {
+        const proxyUrl = PROXY_URL + encodeURIComponent(feed.url);
+        const res = await fetch(proxyUrl, { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const text = await res.text();
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(text, 'text/xml');
+        if (doc.querySelector('parsererror')) throw new Error('XML parse error');
+
+        const items = [];
+        const entries = doc.querySelectorAll('entry, item');
+        entries.forEach((entry, i) => {
+            if (i >= 15) return;
+            const title = entry.querySelector('title')?.textContent?.trim() || '';
+            const link = entry.querySelector('link')?.getAttribute('href') || entry.querySelector('link')?.textContent?.trim() || '#';
+            const desc = entry.querySelector('summary, description, content')?.textContent?.trim() || '';
+            const pubDate = entry.querySelector('published, updated, pubDate')?.textContent || '';
+            const author = entry.querySelector('author name, author')?.textContent?.trim() || feed.name;
+            const cats = [...entry.querySelectorAll('category')].map(c => c.textContent.trim()).slice(0, 3);
+
+            if (title) {
+                items.push({
+                    id: feed.id + '_' + i + '_' + Math.random().toString(36).slice(2, 6),
+                    source: feed.id, sourceName: feed.name, sourceColor: feed.color,
+                    title, desc: stripHtml(desc).slice(0, 180), link,
+                    pubDate: pubDate ? new Date(pubDate).getTime() : Date.now() - i * 3600000,
+                    author, categories: cats,
+                });
+            }
+        });
+        return items;
+    } catch (err) {
+        console.warn(`[${feed.name}] Fetch failed:`, err.message);
+        return [];
+    }
+}
+
+async function refreshWeekly() {
+    const btn = document.getElementById('refreshBtn');
+    const loading = document.getElementById('weeklyLoading');
+    const grid = document.getElementById('weeklyGrid');
+    const empty = document.getElementById('weeklyEmpty');
+
+    btn.disabled = true;
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" class="spin-icon"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> 刷新中...';
+    loading.classList.remove('hidden');
+    grid.innerHTML = '';
+    empty.classList.add('hidden');
+
+    const results = await Promise.allSettled(RSS_FEEDS.map(f => fetchRSS(f)));
+    let allItems = results.flatMap(r => r.status === 'fulfilled' ? r.value : []);
+
+    if (allItems.length === 0) {
+        weeklyData = getFallbackWeekly();
+    } else {
+        allItems.sort((a, b) => b.pubDate - a.pubDate);
+        weeklyData = allItems;
+    }
+
+    DB.setWeekly(weeklyData);
+    DB.setWeeklyTime(Date.now());
+
+    loading.classList.add('hidden');
+    btn.disabled = false;
+    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg> 刷新';
+
+    renderWeeklyCards();
+    const src = allItems.length > 0 ? '实时数据' : '本地数据';
+    showToast(`已更新（${src}），共 ${weeklyData.length} 条`, 'success');
+}
+
+function getFallbackWeekly() {
+    return [
+        { id: 'fb1', source: 'github', sourceName: 'GitHub', sourceColor: '#24292e', title: 'GitHub Copilot X: AI-powered developer experience', desc: 'GitHub announces Copilot X, bringing AI assistance to every part of the developer workflow including PRs, issues, and documentation.', link: 'https://github.com/features/copilot', pubDate: Date.now() - 3600000, author: 'GitHub', categories: ['AI', 'Developer Tools'] },
+        { id: 'fb2', source: 'hackernews', sourceName: 'Hacker News', sourceColor: '#ff6600', title: 'Show HN: I built a local-first real-time collaboration engine', desc: 'A new open-source engine for building local-first collaborative apps using CRDTs, with sub-millisecond sync.', link: '#', pubDate: Date.now() - 7200000, author: 'HN User', categories: ['Show HN', 'Open Source'] },
+        { id: 'fb3', source: 'sspai', sourceName: '少数派', sourceColor: '#d43d31', title: '2025 年值得关注的效率工具盘点', desc: '新的一年有不少优秀的效率工具值得尝试，本文整理了编辑器、笔记、自动化等领域的推荐。', link: 'https://sspai.com', pubDate: Date.now() - 10800000, author: '少数派', categories: ['效率', '工具'] },
+        { id: 'fb4', source: 'v2ex', sourceName: 'V2EX', sourceColor: '#1a1a1a', title: '讨论：远程工作两年的感受', desc: '分享远程工作的优缺点，包括自律、沟通、工作生活平衡等方面的经验。', link: 'https://v2ex.com', pubDate: Date.now() - 14400000, author: 'V友', categories: ['远程工作', '讨论'] },
+        { id: 'fb5', source: 'juejin', sourceName: '掘金', sourceColor: '#1e80ff', title: '深入理解 JavaScript 引擎 V8 的优化策略', desc: '从 V8 的编译管线、Hidden Class、内联缓存等角度解析 JS 引擎的性能优化原理。', link: 'https://juejin.cn', pubDate: Date.now() - 18000000, author: '掘金作者', categories: ['JavaScript', '性能优化'] },
+        { id: 'fb6', source: 'github', sourceName: 'GitHub', sourceColor: '#24292e', title: 'Bun 2.0: The fast JavaScript runtime, bundler, and package manager', desc: 'Bun 2.0 brings significant performance improvements, native S3 support, and a built-in database.', link: 'https://bun.sh', pubDate: Date.now() - 21600000, author: 'Bun Team', categories: ['JavaScript', 'Runtime'] },
+        { id: 'fb7', source: 'hackernews', sourceName: 'Hacker News', sourceColor: '#ff6600', title: 'The rise of local-first software', desc: 'An in-depth look at the local-first software movement, CRDTs, and how modern apps are moving away from cloud-only architectures.', link: '#', pubDate: Date.now() - 25200000, author: 'HN User', categories: ['Architecture', 'Trends'] },
+        { id: 'fb8', source: 'sspai', sourceName: '少数派', sourceColor: '#d43d31', title: '用 Shortcuts 构建你的个人自动化工作流', desc: 'Shortcuts（快捷指令）可以串联多个 App 完成复杂任务，本文介绍几个实用的自动化场景。', link: 'https://sspai.com', pubDate: Date.now() - 28800000, author: '少数派', categories: ['iOS', '自动化'] },
+        { id: 'fb9', source: 'juejin', sourceName: '掘金', sourceColor: '#1e80ff', title: 'Rust 在前端的应用：从 Turbopack 到 MissionControl', desc: '越来越多的前端工具链开始使用 Rust 重写，本文分析 Rust 在前端领域的优势和实际案例。', link: 'https://juejin.cn', pubDate: Date.now() - 32400000, author: '掘金作者', categories: ['Rust', '前端'] },
+        { id: 'fb10', source: 'v2ex', sourceName: 'V2EX', sourceColor: '#1a1a1a', title: '独立开发者如何选择技术栈？', desc: '从开发效率、运维成本、可扩展性等维度分析不同技术栈的优劣。', link: 'https://v2ex.com', pubDate: Date.now() - 36000000, author: 'V友', categories: ['独立开发', '技术选型'] },
+    ];
+}
+
+function filterWeekly(source) {
+    weeklyFilter = source;
+    document.querySelectorAll('.weekly-tab').forEach(t => t.classList.toggle('active', t.dataset.source === source));
+    renderWeeklyCards();
+}
+
+function renderWeeklyCards() {
+    const grid = document.getElementById('weeklyGrid');
+    const empty = document.getElementById('weeklyEmpty');
+    const items = weeklyFilter === 'all' ? weeklyData : weeklyData.filter(d => d.source === weeklyFilter);
+
+    if (items.length === 0) {
+        grid.innerHTML = '';
+        empty.classList.remove('hidden');
+        return;
+    }
+    empty.classList.add('hidden');
+
+    grid.innerHTML = items.map(item => {
+        const timeStr = timeAgo(item.pubDate);
+        const cats = (item.categories || []).slice(0, 3).map(c => `<span class="tag">${esc(c)}</span>`).join('');
+        return `
+            <a class="weekly-card src-${item.source}" href="${esc(item.link)}" target="_blank" rel="noopener noreferrer" onclick="event.stopPropagation()">
+                <div class="weekly-card-source" style="background:${item.sourceColor}">
+                    ${item.source === 'github' ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>'
+                    : item.source === 'hackernews' ? '<svg width="16" height="16" viewBox="0 0 24 24" fill="white"><path d="M12 2L2 19.5h20L12 2z"/></svg>'
+                    : item.source === 'v2ex' ? '<span style="font-size:16px">V</span>'
+                    : item.source === 'sspai' ? '<span style="font-size:11px">SS</span>'
+                    : '<span style="font-size:12px">J</span>'}
+                </div>
+                <div class="weekly-card-body">
+                    <div class="weekly-card-title">${esc(item.title)}</div>
+                    <div class="weekly-card-desc">${esc(item.desc)}</div>
+                    <div class="weekly-card-meta">
+                        <span class="weekly-card-meta-item">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                            ${timeStr}
+                        </span>
+                        <span class="weekly-card-meta-item" style="color:${item.sourceColor}">${esc(item.sourceName)}</span>
+                        <span class="weekly-card-meta-item">${esc(item.author)}</span>
+                        ${cats}
+                    </div>
+                </div>
+            </a>`;
+    }).join('');
+
+    observeNewElements();
 }
 
 // --- Keyboard ---

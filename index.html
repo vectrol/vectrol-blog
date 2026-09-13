@@ -31,6 +31,7 @@
             <div class="nav-links" id="navLinks" role="menubar">
                 <a href="#" class="nav-link active" data-page="home" role="menuitem" onclick="navigateTo('home')">首页</a>
                 <a href="#" class="nav-link" data-page="categories" role="menuitem" onclick="navigateTo('categories')">版块</a>
+                <a href="#" class="nav-link" data-page="weekly" role="menuitem" onclick="navigateTo('weekly')">周刊</a>
                 <a href="#" class="nav-link" data-page="new-thread" role="menuitem" onclick="navigateTo('new-thread')">发帖</a>
             </div>
             <div class="nav-actions" id="navActions">
@@ -232,6 +233,96 @@
                 <h1 class="page-title">我的帖子</h1>
             </div>
             <div class="thread-list" id="myThreadsList"></div>
+        </div>
+
+        <!-- Tech Weekly -->
+        <div class="page" id="page-weekly">
+            <div class="page-header">
+                <div>
+                    <h1 class="page-title">科技周刊</h1>
+                    <p class="page-subtitle">精选技术资讯 · 每周更新</p>
+                </div>
+                <div class="weekly-refresh">
+                    <button class="btn btn-ghost btn-sm" onclick="refreshWeekly()" id="refreshBtn">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/></svg>
+                        刷新
+                    </button>
+                </div>
+            </div>
+
+            <div class="weekly-tabs" id="weeklyTabs">
+                <button class="weekly-tab active" data-source="all" onclick="filterWeekly('all')">全部</button>
+                <button class="weekly-tab" data-source="github" onclick="filterWeekly('github')">GitHub</button>
+                <button class="weekly-tab" data-source="hackernews" onclick="filterWeekly('hackernews')">Hacker News</button>
+                <button class="weekly-tab" data-source="v2ex" onclick="filterWeekly('v2ex')">V2EX</button>
+                <button class="weekly-tab" data-source="sspai" onclick="filterWeekly('sspai')">少数派</button>
+                <button class="weekly-tab" data-source="juejin" onclick="filterWeekly('juejin')">掘金</button>
+            </div>
+
+            <div class="weekly-loading hidden" id="weeklyLoading">
+                <div class="loading-spinner"></div>
+                <p>正在获取最新资讯...</p>
+            </div>
+
+            <div class="weekly-grid" id="weeklyGrid"></div>
+
+            <div class="weekly-empty hidden" id="weeklyEmpty">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/></svg>
+                <h3>暂无数据</h3>
+                <p>点击刷新获取最新资讯</p>
+            </div>
+
+            <div class="weekly-sources glass-card">
+                <h3>数据来源</h3>
+                <p class="text-muted">周刊内容聚合自以下公开 RSS 源，每日自动更新</p>
+                <div class="source-list">
+                    <div class="source-item">
+                        <div class="source-icon" style="background:#24292e">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+                        </div>
+                        <div>
+                            <div class="source-name">GitHub Trending</div>
+                            <div class="source-desc">每日热门开源项目</div>
+                        </div>
+                    </div>
+                    <div class="source-item">
+                        <div class="source-icon" style="background:#ff6600">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="white"><path d="M12 2L2 19.5h20L12 2zm0 4l6.9 11.5H5.1L12 6z"/></svg>
+                        </div>
+                        <div>
+                            <div class="source-name">Hacker News</div>
+                            <div class="source-desc">科技社区热门讨论</div>
+                        </div>
+                    </div>
+                    <div class="source-item">
+                        <div class="source-icon" style="background:#1a1a1a">
+                            <span style="color:#fff;font-weight:700;font-size:14px">V</span>
+                        </div>
+                        <div>
+                            <div class="source-name">V2EX</div>
+                            <div class="source-desc">创意工作者社区</div>
+                        </div>
+                    </div>
+                    <div class="source-item">
+                        <div class="source-icon" style="background:#d43d31">
+                            <span style="color:#fff;font-weight:700;font-size:12px">SS</span>
+                        </div>
+                        <div>
+                            <div class="source-name">少数派</div>
+                            <div class="source-desc">效率工具与数字生活</div>
+                        </div>
+                    </div>
+                    <div class="source-item">
+                        <div class="source-icon" style="background:#1e80ff">
+                            <span style="color:#fff;font-weight:700;font-size:12px">J</span>
+                        </div>
+                        <div>
+                            <div class="source-name">掘金</div>
+                            <div class="source-desc">开发者技术社区</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
 
         <!-- Settings -->
