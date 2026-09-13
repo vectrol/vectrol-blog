@@ -132,6 +132,7 @@ function navigateTo(page, data) {
         case 'profile': renderProfile(data); break;
         case 'my-threads': renderMyThreads(); break;
         case 'bookmarks': renderBookmarks(); break;
+        case 'admin': renderAdmin(); break;
         case 'settings': renderSettings(); break;
     }
 }
@@ -202,6 +203,7 @@ function updateAuthUI() {
         authBtns.classList.remove('hidden');
         userMenu.classList.add('hidden');
     }
+    updateAdminUI();
 }
 
 function toggleUserDropdown() { document.getElementById('userDropdown').classList.toggle('hidden'); }
@@ -818,9 +820,190 @@ function exportData() {
 }
 function clearAllData() {
     if (!confirm('确定清除所有数据？此操作不可恢复！')) return;
-    ['vf_users','vf_threads','vf_replies','vf_currentUser'].forEach(k => localStorage.removeItem(k));
+    ['vf_users','vf_threads','vf_replies','vf_currentUser','vf_bookmarks','vf_notifications','vf_reports'].forEach(k => localStorage.removeItem(k));
     currentUser = null; updateAuthUI(); navigateTo('home');
     showToast('所有数据已清除', 'success');
+}
+
+// --- Admin ---
+const ADMIN_EMAILS = ['admin@vectrol.com'];
+function isAdmin() { return currentUser && ADMIN_EMAILS.includes(currentUser.email); }
+
+function updateAdminUI() {
+    const show = isAdmin();
+    document.querySelectorAll('.admin-nav').forEach(el => el.style.display = show ? '' : 'none');
+    document.querySelectorAll('.admin-dropdown').forEach(el => el.style.display = show ? '' : 'none');
+}
+
+function renderAdmin() {
+    if (!isAdmin()) { showToast('无管理员权限', 'error'); navigateTo('home'); return; }
+    const users = DB.getUsers();
+    const threads = DB.getThreads();
+    const replies = DB.getReplies();
+    const reports = DB.getReports().filter(r => r.status === 'pending');
+    const today = threads.filter(t => Date.now() - t.createdAt < 86400000).length;
+    const online = getOnlineCount();
+
+    document.getElementById('adminStats').innerHTML = `
+        <div class="admin-stat glass-card"><div class="admin-stat-icon" style="background:rgba(10,132,255,.15);color:var(--accent)"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></div><div class="admin-stat-info"><div class="admin-stat-value">${users.length}</div><div class="admin-stat-label">用户总数</div></div></div>
+        <div class="admin-stat glass-card"><div class="admin-stat-icon" style="background:rgba(16,185,129,.15);color:#10b981"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div><div class="admin-stat-info"><div class="admin-stat-value">${threads.length}</div><div class="admin-stat-label">帖子总数</div></div></div>
+        <div class="admin-stat glass-card"><div class="admin-stat-icon" style="background:rgba(236,72,153,.15);color:#ec4899"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg></div><div class="admin-stat-info"><div class="admin-stat-value">${replies.length}</div><div class="admin-stat-label">回复总数</div></div></div>
+        <div class="admin-stat glass-card"><div class="admin-stat-icon" style="background:rgba(245,158,11,.15);color:#f59e0b"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg></div><div class="admin-stat-info"><div class="admin-stat-value">${today}</div><div class="admin-stat-label">今日新帖</div></div></div>
+        <div class="admin-stat glass-card"><div class="admin-stat-icon" style="background:rgba(139,92,246,.15);color:#8b5cf6"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg></div><div class="admin-stat-info"><div class="admin-stat-value">${online}</div><div class="admin-stat-label">在线用户</div></div></div>
+        <div class="admin-stat glass-card"><div class="admin-stat-icon" style="background:rgba(239,68,68,.15);color:#ef4444"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg></div><div class="admin-stat-info"><div class="admin-stat-value">${reports.length}</div><div class="admin-stat-label">待处理举报</div></div></div>`;
+
+    switchAdminTab('overview');
+}
+
+let adminTab = 'overview';
+function switchAdminTab(tab) {
+    adminTab = tab;
+    document.querySelectorAll('.admin-tab').forEach(t => t.classList.toggle('active', t.textContent.includes({overview:'概览',users:'用户',threads:'帖子',reports:'举报'}[tab])));
+    const panel = document.getElementById('adminPanel');
+
+    switch (tab) {
+        case 'overview': renderAdminOverview(panel); break;
+        case 'users': renderAdminUsers(panel); break;
+        case 'threads': renderAdminThreads(panel); break;
+        case 'reports': renderAdminReports(panel); break;
+    }
+}
+
+function renderAdminOverview(el) {
+    const users = DB.getUsers().sort((a, b) => (b.score || 0) - (a.score || 0));
+    const threads = DB.getThreads();
+    const catStats = CATEGORIES.map(c => ({ ...c, count: threads.filter(t => t.categoryId === c.id).length })).sort((a, b) => b.count - a.count);
+
+    el.innerHTML = `
+        <div class="admin-grid">
+            <div class="glass-card">
+                <h3 class="admin-card-title">用户排行 (按积分)</h3>
+                <div class="admin-list">${users.slice(0, 10).map((u, i) => {
+                    const level = getUserLevel(u.score || 0);
+                    return `<div class="admin-list-item">
+                        <span class="admin-rank">${i + 1}</span>
+                        <div class="thread-avatar" style="background:${u.avatarColor}">${u.name.charAt(0)}</div>
+                        <div class="admin-list-info"><div class="admin-list-name">${esc(u.name)}</div><div class="admin-list-sub">${level.icon} ${level.name}</div></div>
+                        <div class="admin-list-value">${u.score || 0} 分</div>
+                    </div>`;
+                }).join('')}</div>
+            </div>
+            <div class="glass-card">
+                <h3 class="admin-card-title">版块统计</h3>
+                <div class="admin-list">${catStats.map(c => `<div class="admin-list-item">
+                    <div class="category-icon-sm" style="background:${c.color}">${CATEGORY_ICONS[c.icon]}</div>
+                    <div class="admin-list-info"><div class="admin-list-name">${c.name}</div><div class="admin-list-sub">${c.desc}</div></div>
+                    <div class="admin-list-value">${c.count} 帖</div>
+                </div>`).join('')}</div>
+            </div>
+        </div>`;
+}
+
+function renderAdminUsers(el) {
+    const users = DB.getUsers().sort((a, b) => (b.score || 0) - (a.score || 0));
+    el.innerHTML = `
+        <div class="glass-card">
+            <div class="admin-card-header"><h3 class="admin-card-title">用户管理</h3><span class="text-muted">${users.length} 个用户</span></div>
+            <div class="admin-table-wrap">
+                <table class="admin-table">
+                    <thead><tr><th>用户</th><th>邮箱</th><th>积分</th><th>等级</th><th>注册时间</th><th>操作</th></tr></thead>
+                    <tbody>${users.map(u => {
+                        const level = getUserLevel(u.score || 0);
+                        const isSelf = currentUser && u.id === currentUser.id;
+                        return `<tr>
+                            <td><div style="display:flex;align-items:center;gap:8px"><div class="thread-avatar" style="background:${u.avatarColor};width:28px;height:28px;font-size:.7rem">${u.name.charAt(0)}</div>${esc(u.name)}</div></td>
+                            <td class="text-muted">${esc(u.email)}</td>
+                            <td><strong>${u.score || 0}</strong></td>
+                            <td><span style="color:${level.color}">${level.icon} ${level.name}</span></td>
+                            <td class="text-muted">${new Date(u.createdAt).toLocaleDateString('zh-CN')}</td>
+                            <td>
+                                <button class="btn btn-ghost btn-xs" onclick="navigateTo('profile','${u.id}')" title="查看">查看</button>
+                                ${!isSelf && isAdmin() ? `<button class="btn btn-danger btn-xs" onclick="adminDeleteUser('${u.id}')" title="删除">删除</button>` : ''}
+                            </td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table>
+            </div>
+        </div>`;
+}
+
+function renderAdminThreads(el) {
+    const threads = DB.getThreads().sort((a, b) => b.createdAt - a.createdAt);
+    el.innerHTML = `
+        <div class="glass-card">
+            <div class="admin-card-header"><h3 class="admin-card-title">帖子管理</h3><span class="text-muted">${threads.length} 个帖子</span></div>
+            <div class="admin-table-wrap">
+                <table class="admin-table">
+                    <thead><tr><th>标题</th><th>作者</th><th>版块</th><th>回复</th><th>浏览</th><th>状态</th><th>操作</th></tr></thead>
+                    <tbody>${threads.map(t => {
+                        const user = DB.getUsers().find(u => u.id === t.userId);
+                        const cat = CATEGORIES.find(c => c.id === t.categoryId);
+                        const replyCount = DB.getReplies().filter(r => r.threadId === t.id).length;
+                        const isOwner = currentUser && t.userId === currentUser.id;
+                        return `<tr>
+                            <td><a href="#" onclick="navigateTo('thread','${t.id}');return false" class="admin-link">${esc(t.title).slice(0, 40)}${t.title.length > 40 ? '...' : ''}</a></td>
+                            <td>${esc(user?.name || '未知')}</td>
+                            <td><span style="color:${cat?.color || '#999'}">${cat?.name || '无'}</span></td>
+                            <td>${replyCount}</td>
+                            <td>${t.views || 0}</td>
+                            <td>${t.pinned ? '<span class="thread-badge badge-pin" style="font-size:.65rem">置顶</span> ' : ''}${t.locked ? '<span class="thread-badge badge-lock" style="font-size:.65rem">锁定</span>' : ''}</td>
+                            <td>
+                                ${isOwner || isAdmin() ? `<button class="btn btn-ghost btn-xs" onclick="togglePin('${t.id}');switchAdminTab('threads')">${t.pinned ? '取消置顶' : '置顶'}</button>` : ''}
+                                ${isOwner || isAdmin() ? `<button class="btn btn-ghost btn-xs" onclick="toggleLock('${t.id}');switchAdminTab('threads')">${t.locked ? '解锁' : '锁定'}</button>` : ''}
+                                ${isOwner || isAdmin() ? `<button class="btn btn-danger btn-xs" onclick="if(confirm('确定删除？')){deleteThread('${t.id}');switchAdminTab('threads')}">删除</button>` : ''}
+                            </td>
+                        </tr>`;
+                    }).join('')}</tbody>
+                </table>
+            </div>
+        </div>`;
+}
+
+function renderAdminReports(el) {
+    const reports = DB.getReports().sort((a, b) => b.createdAt - a.createdAt);
+    el.innerHTML = `
+        <div class="glass-card">
+            <div class="admin-card-header"><h3 class="admin-card-title">举报处理</h3><span class="text-muted">${reports.filter(r => r.status === 'pending').length} 待处理</span></div>
+            ${reports.length === 0 ? '<div style="text-align:center;padding:48px"><p class="text-muted">暂无举报</p></div>' :
+            `<div class="admin-table-wrap"><table class="admin-table">
+                <thead><tr><th>类型</th><th>目标</th><th>举报人</th><th>原因</th><th>时间</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody>${reports.map(r => {
+                    const reporter = DB.getUsers().find(u => u.id === r.userId);
+                    let target = '';
+                    if (r.type === 'thread') { const t = DB.getThreads().find(x => x.id === r.targetId); target = t ? t.title.slice(0, 30) : '已删除'; }
+                    else { const rep = DB.getReplies().find(x => x.id === r.targetId); target = rep ? stripHtml(rep.content).slice(0, 30) : '已删除'; }
+                    return `<tr>
+                        <td>${r.type === 'thread' ? '帖子' : '回复'}</td>
+                        <td class="text-muted">${esc(target)}</td>
+                        <td>${esc(reporter?.name || '未知')}</td>
+                        <td>${esc(r.reason).slice(0, 40)}</td>
+                        <td class="text-muted">${timeAgo(r.createdAt)}</td>
+                        <td>${r.status === 'pending' ? '<span style="color:#f59e0b">待处理</span>' : r.status === 'resolved' ? '<span style="color:#10b981">已处理</span>' : '<span style="color:#6b7280">已忽略</span>'}</td>
+                        <td>${r.status === 'pending' ? `
+                            <button class="btn btn-ghost btn-xs" onclick="handleReport('${r.id}','resolve')">处理</button>
+                            <button class="btn btn-ghost btn-xs" onclick="handleReport('${r.id}','ignore')">忽略</button>
+                            ${r.type === 'thread' ? `<button class="btn btn-danger btn-xs" onclick="if(confirm('确定删除该帖子？')){deleteThread('${r.targetId}');handleReport('${r.id}','resolve')}">删除帖子</button>` : ''}
+                        ` : ''}</td>
+                    </tr>`;
+                }).join('')}</tbody></table></div>`}
+        </div>`;
+}
+
+function handleReport(reportId, action) {
+    const reports = DB.getReports();
+    const r = reports.find(x => x.id === reportId);
+    if (r) { r.status = action === 'resolve' ? 'resolved' : 'ignored'; DB.setReports(reports); }
+    switchAdminTab('reports');
+    renderAdmin();
+}
+function adminDeleteUser(userId) {
+    if (!confirm('确定删除该用户？其帖子和回复也会被删除。')) return;
+    DB.setUsers(DB.getUsers().filter(u => u.id !== userId));
+    DB.setThreads(DB.getThreads().filter(t => t.userId !== userId));
+    DB.setReplies(DB.getReplies().filter(r => r.userId !== userId));
+    showToast('用户已删除', 'success');
+    switchAdminTab('users');
+    renderAdmin();
 }
 
 // --- Utilities ---
