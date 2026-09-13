@@ -24,6 +24,8 @@ const DB = {
     setReports: (v) => localStorage.setItem('vf_reports', JSON.stringify(v)),
     getOnlineUsers: () => JSON.parse(localStorage.getItem('vf_online') || '{}'),
     setOnlineUsers: (v) => localStorage.setItem('vf_online', JSON.stringify(v)),
+    getFollowing: () => JSON.parse(localStorage.getItem('vf_following') || '[]'),
+    setFollowing: (v) => localStorage.setItem('vf_following', JSON.stringify(v)),
 };
 
 // --- Categories ---
@@ -95,14 +97,36 @@ function initSampleData() {
 
 // --- Theme ---
 function initTheme() {
-    const saved = localStorage.getItem('vf_theme') || 'dark';
-    document.documentElement.setAttribute('data-theme', saved);
+    const saved = localStorage.getItem('vf_theme');
+    if (saved) {
+        document.documentElement.setAttribute('data-theme', saved);
+    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) {
+        document.documentElement.setAttribute('data-theme', 'light');
+    } else {
+        document.documentElement.setAttribute('data-theme', 'dark');
+    }
 }
 
 function toggleTheme() {
     const next = document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
     document.documentElement.setAttribute('data-theme', next);
     localStorage.setItem('vf_theme', next);
+}
+
+// Back to Top
+function scrollToTop() { window.scrollTo({ top: 0, behavior: 'smooth' }); }
+window.addEventListener('scroll', () => {
+    const btn = document.getElementById('backToTop');
+    if (btn) btn.classList.toggle('visible', window.scrollY > 400);
+});
+
+// System theme change listener
+if (window.matchMedia) {
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+        if (!localStorage.getItem('vf_theme')) {
+            document.documentElement.setAttribute('data-theme', e.matches ? 'dark' : 'light');
+        }
+    });
 }
 
 // --- Navigation ---
@@ -132,6 +156,9 @@ function navigateTo(page, data) {
         case 'profile': renderProfile(data); break;
         case 'my-threads': renderMyThreads(); break;
         case 'bookmarks': renderBookmarks(); break;
+        case 'search': break;
+        case 'tag': renderTagPage(currentParams); break;
+        case 'ranking': renderRankingPage(); break;
         case 'admin': renderAdmin(); break;
         case 'settings': renderSettings(); break;
     }
@@ -244,6 +271,7 @@ function renderHome() {
 
     const latest = getSortedThreads(threads, 'latest').slice(0, 8);
     document.getElementById('latestThreads').innerHTML = latest.map(t => renderThreadRow(t)).join('');
+    document.getElementById('popularTags').innerHTML = renderPopularTags();
     observeNewElements();
 }
 
@@ -287,7 +315,7 @@ function renderThreadRow(thread) {
     const lastReply = replies.sort((a, b) => b.createdAt - a.createdAt)[0];
     const lastReplyUser = lastReply ? DB.getUsers().find(u => u.id === lastReply.userId) : null;
     const cat = CATEGORIES.find(c => c.id === thread.categoryId);
-    const excerpt = stripHtml(thread.content).slice(0, 120);
+    const excerpt = stripHtml(renderThreadContent(thread.content)).slice(0, 120);
     const isHot = replies.length >= 5 || thread.views >= 300;
     const isNew = Date.now() - thread.createdAt < 86400000;
     const level = getUserLevel(user.score || 0);
@@ -306,6 +334,7 @@ function renderThreadRow(thread) {
                     <span class="thread-title">${esc(thread.title)}</span>
                     ${badges}
                 </div>
+                ${(thread.tags && thread.tags.length) ? `<div class="thread-tags" style="margin:4px 0">${thread.tags.map(t => `<span class="tag-chip" onclick="event.stopPropagation();navigateTo('tag','${esc(t)}')">#${esc(t)}</span>`).join('')}</div>` : ''}
                 <div class="thread-excerpt">${esc(excerpt)}</div>
                 <div class="thread-meta">
                     <span style="font-weight:500;color:var(--fg-1)">${esc(user.name)}</span>
@@ -420,11 +449,20 @@ function renderThreadDetail(threadId) {
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
                         分享
                     </button>
+                    ${isOwner ? `<button class="btn btn-ghost btn-sm" onclick="editThread('${thread.id}')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                        编辑
+                    </button>` : ''}
+                    ${thread.editHistory?.length ? `<button class="btn btn-ghost btn-sm" onclick="showHistory('${thread.id}')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                        历史 (${thread.editHistory.length})
+                    </button>` : ''}
                     ${!isOwner && currentUser ? `<button class="btn btn-ghost btn-sm" onclick="reportThread('${thread.id}')">
                         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
                         举报
                     </button>` : ''}
                 </div>
+                ${thread.editedAt ? `<div class="text-muted" style="font-size:.78rem;margin-top:var(--sp-2)">编辑于 ${timeAgo(thread.editedAt)}</div>` : ''}
                 ${isOwner ? `
                     <div style="margin-top:var(--space-sm);display:flex;gap:var(--space-sm)">
                         <button class="btn btn-ghost btn-sm" onclick="togglePin('${thread.id}')">
@@ -450,7 +488,7 @@ function renderThreadDetail(threadId) {
                     ${isOwner ? '<span class="post-author-badge">楼主</span>' : ''}
                     <span class="post-floor">#1</span>
                 </div>
-                <div class="post-body">${thread.content}</div>
+                <div class="post-body">${renderThreadContent(thread.content)}</div>
                 <div class="post-actions">
                     <button class="post-action-btn" onclick="likeThread('${thread.id}')">
                         <svg viewBox="0 0 24 24" fill="${threadLikes > 0 ? 'var(--accent)' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
@@ -601,6 +639,203 @@ function shareThread(id) {
     navigator.clipboard?.writeText(url).then(() => showToast('链接已复制', 'success')).catch(() => showToast('分享链接: ' + url, 'info'));
 }
 
+// --- Thread Edit & History ---
+function editThread(threadId) {
+    const thread = DB.getThreads().find(t => t.id === threadId);
+    if (!thread) return;
+    const el = document.getElementById('editEditor');
+    document.getElementById('editModal').classList.remove('hidden');
+    el.value = thread.content.startsWith('<') ? stripHtml(thread.content) : thread.content;
+    el.dataset.threadId = threadId;
+}
+function saveThreadEdit() {
+    const el = document.getElementById('editEditor');
+    const threadId = el.dataset.threadId;
+    const newContent = el.value.trim();
+    if (!newContent) { showToast('内容不能为空', 'error'); return; }
+    const threads = DB.getThreads();
+    const t = threads.find(x => x.id === threadId);
+    if (!t) return;
+    if (!t.editHistory) t.editHistory = [];
+    t.editHistory.push({ content: t.content, editedAt: Date.now() });
+    if (t.editHistory.length > 20) t.editHistory = t.editHistory.slice(-20);
+    t.content = newContent;
+    t.editedAt = Date.now();
+    DB.setThreads(threads);
+    document.getElementById('editModal').classList.add('hidden');
+    renderThreadDetail(threadId);
+    showToast('编辑已保存', 'success');
+}
+function closeEditModal() { document.getElementById('editModal').classList.add('hidden'); }
+function showHistory(threadId) {
+    const thread = DB.getThreads().find(t => t.id === threadId);
+    if (!thread || !thread.editHistory?.length) { showToast('暂无编辑历史', 'info'); return; }
+    const el = document.getElementById('historyModal');
+    el.classList.remove('hidden');
+    const list = document.getElementById('historyList');
+    list.innerHTML = thread.editHistory.map((h, i) => `
+        <div class="history-item glass-card">
+            <div class="history-header">
+                <span>版本 ${i + 1}</span>
+                <span class="text-muted">${timeAgo(h.editedAt)}</span>
+            </div>
+            <div class="history-body post-body">${renderThreadContent(h.content)}</div>
+        </div>`).reverse().join('') + `
+        <div class="history-item glass-card" style="border-left:3px solid var(--accent)">
+            <div class="history-header"><span>当前版本</span><span class="text-muted">${timeAgo(thread.editedAt || thread.createdAt)}</span></div>
+            <div class="history-body post-body">${renderThreadContent(thread.content)}</div>
+        </div>`;
+}
+function closeHistoryModal() { document.getElementById('historyModal').classList.add('hidden'); }
+
+// --- Global Search ---
+let searchQuery = '';
+function globalSearch(q) {
+    searchQuery = q.trim().toLowerCase();
+    if (!searchQuery) { document.getElementById('searchResults').innerHTML = ''; return; }
+    const threads = DB.getThreads();
+    const replies = DB.getReplies();
+    const users = DB.getUsers();
+    const matchedThreads = threads.filter(t => t.title.toLowerCase().includes(searchQuery) || stripHtml(renderThreadContent(t.content)).toLowerCase().includes(searchQuery));
+    const matchedReplies = replies.filter(r => stripHtml(r.content).toLowerCase().includes(searchQuery));
+    const matchedUsers = users.filter(u => u.name.toLowerCase().includes(searchQuery));
+    let html = '';
+    if (matchedThreads.length) {
+        html += `<div class="search-section"><h3>帖子 (${matchedThreads.length})</h3>`;
+        html += matchedThreads.slice(0, 20).map(t => renderThreadRow(t)).join('');
+        html += '</div>';
+    }
+    if (matchedReplies.length) {
+        html += `<div class="search-section"><h3>回复 (${matchedReplies.length})</h3>`;
+        html += matchedReplies.slice(0, 10).map(r => {
+            const user = users.find(u => u.id === r.userId);
+            const thread = threads.find(t => t.id === r.threadId);
+            return `<div class="search-reply glass-card" onclick="navigateTo('thread','${r.threadId}')">
+                <div class="search-reply-meta">${esc(user?.name || '未知')} · 回复了 <a href="#" onclick="event.stopPropagation();navigateTo('thread','${r.threadId}')">${esc(thread?.title || '帖子')}</a> · ${timeAgo(r.createdAt)}</div>
+                <div class="search-reply-content">${esc(stripHtml(r.content).slice(0, 150))}</div>
+            </div>`;
+        }).join('');
+        html += '</div>';
+    }
+    if (matchedUsers.length) {
+        html += `<div class="search-section"><h3>用户 (${matchedUsers.length})</h3><div class="search-users">`;
+        html += matchedUsers.map(u => `<div class="search-user glass-card" onclick="navigateTo('profile','${u.id}')">
+            <div class="thread-avatar" style="background:${u.avatarColor}">${u.name.charAt(0)}</div>
+            <div><div style="font-weight:500">${esc(u.name)}</div><div class="text-muted" style="font-size:.78rem">${u.score || 0} 积分</div></div>
+        </div>`).join('');
+        html += '</div></div>';
+    }
+    if (!html) html = '<div class="glass-card" style="text-align:center;padding:48px"><p class="text-muted">未找到相关内容</p></div>';
+    document.getElementById('searchResults').innerHTML = html;
+}
+
+// === FOLLOW SYSTEM ===
+function toggleFollow(userId) {
+    if (!currentUser) { showToast('请先登录', 'error'); showModal('login'); return; }
+    if (userId === currentUser.id) return;
+    const following = DB.getFollowing();
+    const idx = following.findIndex(f => f.from === currentUser.id && f.to === userId);
+    if (idx === -1) {
+        following.push({ from: currentUser.id, to: userId, createdAt: Date.now() });
+        showToast('已关注', 'success');
+    } else {
+        following.splice(idx, 1);
+        showToast('已取消关注', 'info');
+    }
+    DB.setFollowing(following);
+    if (currentPage === 'profile') renderProfile(userId);
+}
+function isFollowing(userId) {
+    if (!currentUser) return false;
+    return DB.getFollowing().some(f => f.from === currentUser.id && f.to === userId);
+}
+function getFollowerCount(userId) { return DB.getFollowing().filter(f => f.to === userId).length; }
+function getFollowingCount(userId) { return DB.getFollowing().filter(f => f.from === userId).length; }
+
+// === TAG SYSTEM ===
+function getAllTags() {
+    const threads = DB.getThreads();
+    const tagMap = {};
+    threads.forEach(t => (t.tags || []).forEach(tag => { tagMap[tag] = (tagMap[tag] || 0) + 1; }));
+    return Object.entries(tagMap).sort((a, b) => b[1] - a[1]);
+}
+function renderTagPage(tag) {
+    const threads = DB.getThreads().filter(t => (t.tags || []).includes(tag)).sort((a, b) => b.createdAt - a.createdAt);
+    document.getElementById('tagTitle').textContent = '#' + tag;
+    document.getElementById('tagThreadCount').textContent = threads.length;
+    document.getElementById('tagThreads').innerHTML = threads.length ? threads.map(t => renderThreadRow(t)).join('') :
+        '<div class="glass-card" style="text-align:center;padding:48px"><p class="text-muted">暂无相关帖子</p></div>';
+}
+function renderPopularTags() {
+    const tags = getAllTags().slice(0, 20);
+    return tags.length ? tags.map(([tag, count]) => `<a class="popular-tag" href="#" onclick="navigateTo('tag','${esc(tag)}');return false">#${esc(tag)} <span class="tag-count">${count}</span></a>`).join('') : '<p class="text-muted">暂无标签</p>';
+}
+
+// === RANKING ===
+let rankingPeriod = 'week';
+function setRankingPeriod(period) { rankingPeriod = period; renderRankingPage(); }
+function renderRankingPage() {
+    const threads = DB.getThreads();
+    const replies = DB.getReplies();
+    const now = Date.now();
+    const periods = { week: 7 * 86400000, month: 30 * 86400000, all: Infinity };
+    const cutoff = now - (periods[rankingPeriod] || Infinity);
+    const filtered = threads.filter(t => t.createdAt >= cutoff);
+    const scored = filtered.map(t => {
+        const rc = replies.filter(r => r.threadId === t.id).length;
+        const lc = (t.likes || []).length;
+        const vc = t.views || 0;
+        return { ...t, score: rc * 2 + lc * 3 + Math.floor(vc * 0.1) };
+    }).sort((a, b) => b.score - a.score).slice(0, 50);
+    document.getElementById('rankingList').innerHTML = scored.length ? scored.map((t, i) => {
+        const user = DB.getUsers().find(u => u.id === t.userId);
+        const cat = CATEGORIES.find(c => c.id === t.categoryId);
+        const rankBadge = i < 3 ? ['🥇','🥈','🥉'][i] : `<span class="rank-num">${i + 1}</span>`;
+        return `<div class="ranking-item glass-card" onclick="navigateTo('thread','${t.id}')">
+            <div class="ranking-rank">${rankBadge}</div>
+            <div class="ranking-info">
+                <div class="ranking-title">${esc(t.title)}</div>
+                <div class="ranking-meta">
+                    <span style="color:${cat?.color || '#999'}">${cat?.name || ''}</span>
+                    <span>${esc(user?.name || '未知')}</span>
+                    <span>${t.score} 分</span>
+                    <span>${(t.likes || []).length} 赞</span>
+                    <span>${replyCount(t.id)} 回复</span>
+                </div>
+            </div>
+        </div>`;
+    }).join('') : '<div class="glass-card" style="text-align:center;padding:48px"><p class="text-muted">暂无数据</p></div>';
+    document.querySelectorAll('.ranking-tab').forEach(tab => tab.classList.toggle('active', tab.dataset.period === rankingPeriod));
+}
+function replyCount(threadId) { return DB.getReplies().filter(r => r.threadId === threadId).length; }
+
+// === BADGES ===
+const BADGES = [
+    { id: 'first_post', name: '初出茅庐', icon: '📝', desc: '发布第一个帖子', check: (u) => DB.getThreads().filter(t => t.userId === u.id).length >= 1 },
+    { id: 'posts_10', name: '笔耕不辍', icon: '✍️', desc: '发布 10 个帖子', check: (u) => DB.getThreads().filter(t => t.userId === u.id).length >= 10 },
+    { id: 'posts_50', name: '高产作者', icon: '📚', desc: '发布 50 个帖子', check: (u) => DB.getThreads().filter(t => t.userId === u.id).length >= 50 },
+    { id: 'first_reply', name: '热心肠', icon: '💬', desc: '发表第一个回复', check: (u) => DB.getReplies().filter(r => r.userId === u.id).length >= 1 },
+    { id: 'replies_100', name: '百问百答', icon: '🎯', desc: '发表 100 个回复', check: (u) => DB.getReplies().filter(r => r.userId === u.id).length >= 100 },
+    { id: 'likes_100', name: '人气之星', icon: '⭐', desc: '累计获得 100 个赞', check: (u) => { const t = DB.getThreads().filter(x => x.userId === u.id).reduce((s, x) => s + (x.likes?.length || 0), 0); const r = DB.getReplies().filter(x => x.userId === u.id).reduce((s, x) => s + (x.likes?.length || 0), 0); return t + r >= 100; } },
+    { id: 'score_1000', name: '社区元老', icon: '👑', desc: '积分达到 1000', check: (u) => (u.score || 0) >= 1000 },
+    { id: 'followed_10', name: '万人迷', icon: '❤️', desc: '获得 10 个粉丝', check: (u) => getFollowerCount(u.id) >= 10 },
+];
+function checkAndAwardBadges(userId) {
+    const users = DB.getUsers();
+    const u = users.find(x => x.id === userId);
+    if (!u) return;
+    if (!u.badges) u.badges = [];
+    let newBadge = false;
+    BADGES.forEach(b => {
+        if (!u.badges.includes(b.id) && b.check(u)) { u.badges.push(b.id); newBadge = true; }
+    });
+    if (newBadge) { DB.setUsers(users); if (userId === currentUser?.id) { currentUser.badges = u.badges; DB.setCurrentUser(currentUser); } }
+}
+function getUserBadges(userId) {
+    const user = DB.getUsers().find(u => u.id === userId);
+    return (user?.badges || []).map(id => BADGES.find(b => b.id === id)).filter(Boolean);
+}
+
 // --- Replies ---
 function submitReply(threadId) {
     if (!currentUser) { showToast('请先登录', 'error'); showModal('login'); return; }
@@ -643,6 +878,7 @@ function submitReply(threadId) {
     }
 
     replyingTo = null;
+    checkAndAwardBadges(currentUser.id);
     renderThreadDetail(threadId);
     showToast('回复成功', 'success');
 }
@@ -707,43 +943,111 @@ function renderNewThread() {
     sel.innerHTML = CATEGORIES.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
     if (currentCategoryId) sel.value = currentCategoryId;
     document.getElementById('threadTitle').value = '';
-    document.getElementById('threadEditor').innerHTML = '';
+    document.getElementById('threadEditor').value = '';
+    document.getElementById('threadPreview').classList.add('hidden');
+    document.getElementById('threadEditor').classList.remove('hidden');
+    // Load draft
+    const draft = loadDraft(sel.value);
+    if (draft) {
+        document.getElementById('threadTitle').value = draft.title || '';
+        document.getElementById('threadEditor').value = draft.content || '';
+        document.getElementById('draftStatus').textContent = `草稿已恢复 (${timeAgo(draft.savedAt)})`;
+    } else {
+        document.getElementById('draftStatus').textContent = '';
+    }
+    sel.onchange = () => {
+        const d = loadDraft(sel.value);
+        if (d) {
+            document.getElementById('threadTitle').value = d.title || '';
+            document.getElementById('threadEditor').value = d.content || '';
+            document.getElementById('draftStatus').textContent = `草稿已恢复 (${timeAgo(d.savedAt)})`;
+        } else {
+            document.getElementById('threadTitle').value = '';
+            document.getElementById('threadEditor').value = '';
+            document.getElementById('draftStatus').textContent = '';
+        }
+    };
+    document.getElementById('threadEditor').addEventListener('paste', handleEditorPaste);
 }
 
-function execCmd(cmd, val) { document.execCommand(cmd, false, val || null); document.getElementById('threadEditor').focus(); }
-function insertLink() { const url = prompt('输入链接:', 'https://'); if (url) document.execCommand('createLink', false, url); }
-function insertCodeBlock() { const code = prompt('输入代码:'); if (code) document.execCommand('insertHTML', false, `<pre><code>${esc(code)}</code></pre>`); }
-function handleThreadImage(e) {
+function insertMd(before, after) {
+    const editor = document.getElementById('threadEditor');
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    const sel = editor.value.slice(start, end);
+    const replacement = before + (sel || '文本') + after;
+    editor.value = editor.value.slice(0, start) + replacement + editor.value.slice(end);
+    editor.focus();
+    editor.selectionStart = start + before.length;
+    editor.selectionEnd = start + before.length + (sel || '文本').length;
+    autoSaveDraft();
+}
+function insertMdLine(prefix) {
+    const editor = document.getElementById('threadEditor');
+    const start = editor.selectionStart;
+    const lineStart = editor.value.lastIndexOf('\n', start - 1) + 1;
+    editor.value = editor.value.slice(0, lineStart) + prefix + editor.value.slice(lineStart);
+    editor.focus();
+    editor.selectionStart = editor.selectionEnd = start + prefix.length;
+    autoSaveDraft();
+}
+function togglePreview() {
+    const editor = document.getElementById('threadEditor');
+    const preview = document.getElementById('threadPreview');
+    const isPreview = !preview.classList.contains('hidden');
+    if (isPreview) {
+        preview.classList.add('hidden');
+        editor.classList.remove('hidden');
+    } else {
+        preview.innerHTML = renderMarkdown(editor.value);
+        preview.classList.remove('hidden');
+        editor.classList.add('hidden');
+    }
+}
+
+function handleThreadImageMd(e) {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => { document.execCommand('insertHTML', false, `<img src="${ev.target.result}" alt="image" style="max-width:100%;border-radius:8px;margin:8px 0">`); };
+    reader.onload = (ev) => {
+        const editor = document.getElementById('threadEditor');
+        const pos = editor.selectionStart;
+        const md = `\n![${file.name}](${ev.target.result})\n`;
+        editor.value = editor.value.slice(0, pos) + md + editor.value.slice(pos);
+        editor.selectionStart = editor.selectionEnd = pos + md.length;
+        autoSaveDraft();
+    };
     reader.readAsDataURL(file); e.target.value = '';
 }
+
 function previewThread() {
     const title = document.getElementById('threadTitle').value.trim();
-    const content = document.getElementById('threadEditor').innerHTML;
+    const content = document.getElementById('threadEditor').value;
     if (!title && !content) { showToast('请先输入内容', 'error'); return; }
     const overlay = document.createElement('div');
     overlay.className = 'preview-modal';
     overlay.onclick = (e) => { if (e.target === overlay) overlay.remove(); };
-    overlay.innerHTML = `<div class="preview-content"><button class="preview-close" onclick="this.closest('.preview-modal').remove()">&times;</button><h1 style="font-size:1.8rem;font-weight:800;margin-bottom:16px">${esc(title || '无标题')}</h1><div class="post-body">${content}</div></div>`;
+    overlay.innerHTML = `<div class="preview-content"><button class="preview-close" onclick="this.closest('.preview-modal').remove()">&times;</button><h1 style="font-size:1.8rem;font-weight:800;margin-bottom:16px">${esc(title || '无标题')}</h1><div class="post-body">${renderMarkdown(content)}</div></div>`;
     document.body.appendChild(overlay);
 }
+
 function publishThread() {
     if (!currentUser) { showToast('请先登录', 'error'); showModal('login'); return; }
     const categoryId = document.getElementById('threadCategory').value;
     const title = document.getElementById('threadTitle').value.trim();
-    const content = document.getElementById('threadEditor').innerHTML.trim();
+    const content = document.getElementById('threadEditor').value.trim();
+    const tagsRaw = document.getElementById('threadTags').value.trim();
     if (!title) { showToast('请输入标题', 'error'); return; }
-    if (!content || content === '<br>') { showToast('请输入内容', 'error'); return; }
+    if (!content) { showToast('请输入内容', 'error'); return; }
+    const tags = tagsRaw ? tagsRaw.split(/[,，]/).map(t => t.trim()).filter(Boolean).slice(0, 5) : [];
     const threads = DB.getThreads();
-    const thread = { id: 't' + Date.now(), categoryId, userId: currentUser.id, title, content, tags: [], pinned: false, locked: false, likes: [], views: 0, createdAt: Date.now() };
+    const thread = { id: 't' + Date.now(), categoryId, userId: currentUser.id, title, content, tags, pinned: false, locked: false, likes: [], views: 0, editHistory: [], createdAt: Date.now() };
     threads.push(thread);
     DB.setThreads(threads);
-    // Update score
+    clearDraft(categoryId);
     const users = DB.getUsers();
     const u = users.find(x => x.id === currentUser.id);
     if (u) { u.score = (u.score || 0) + 5; DB.setUsers(users); currentUser.score = u.score; DB.setCurrentUser(currentUser); updateAuthUI(); }
+    checkAndAwardBadges(currentUser.id);
     showToast('帖子发布成功！', 'success');
     currentCategoryId = categoryId;
     navigateTo('thread', thread.id);
@@ -759,21 +1063,33 @@ function renderProfile(userId) {
     const replies = DB.getReplies().filter(r => r.userId === userId);
     const totalLikes = threads.reduce((s, t) => s + (t.likes?.length || 0), 0) + replies.reduce((s, r) => s + (r.likes?.length || 0), 0);
     const level = getUserLevel(user.score || 0);
+    const following = getFollowingCount(userId);
+    const followers = getFollowerCount(userId);
+    const isOwn = currentUser?.id === userId;
+    const isUserFollowing = isFollowing(userId);
+    const badges = getUserBadges(userId);
 
     document.getElementById('profileContent').innerHTML = `
         <div class="glass-card profile-header-card">
             <div class="profile-avatar-lg" style="background:${user.avatarColor}">${user.name.charAt(0)}</div>
             <h2 class="profile-name">${esc(user.name)}</h2>
-            <div class="user-level-badge" style="background:${level.color}20;color:${level.color};border:1px solid ${level.color}40">${level.icon} ${level.name}</div>
+            <div style="display:flex;align-items:center;gap:var(--sp-2);flex-wrap:wrap;justify-content:center">
+                <div class="user-level-badge" style="background:${level.color}20;color:${level.color};border:1px solid ${level.color}40">${level.icon} ${level.name}</div>
+                ${badges.map(b => `<span title="${esc(b.desc)}" style="font-size:1.2rem;cursor:help">${b.icon}</span>`).join('')}
+            </div>
             <p class="profile-bio">${esc(user.bio || '这个人很懒，什么都没写~')}</p>
             <div class="profile-stats-row">
                 <div class="profile-stat"><div class="profile-stat-value">${threads.length}</div><div class="profile-stat-label">帖子</div></div>
                 <div class="profile-stat"><div class="profile-stat-value">${replies.length}</div><div class="profile-stat-label">回复</div></div>
                 <div class="profile-stat"><div class="profile-stat-value">${totalLikes}</div><div class="profile-stat-label">获赞</div></div>
                 <div class="profile-stat"><div class="profile-stat-value">${user.score || 0}</div><div class="profile-stat-label">积分</div></div>
+                <div class="profile-stat"><div class="profile-stat-value">${followers}</div><div class="profile-stat-label">粉丝</div></div>
+                <div class="profile-stat"><div class="profile-stat-value">${following}</div><div class="profile-stat-label">关注</div></div>
             </div>
-            <p class="text-muted" style="margin-top:var(--space-md)">注册于 ${new Date(user.createdAt).toLocaleDateString('zh-CN')}</p>
+            ${!isOwn && currentUser ? `<button class="btn ${isUserFollowing ? 'btn-ghost' : 'btn-primary'}" style="margin-top:var(--sp-3)" onclick="toggleFollow('${userId}')">${isUserFollowing ? '取消关注' : '关注'}</button>` : ''}
+            <p class="text-muted" style="margin-top:var(--sp-3)">注册于 ${new Date(user.createdAt).toLocaleDateString('zh-CN')}</p>
         </div>
+        ${badges.length ? `<div class="section"><div class="section-header"><h2 class="section-title">徽章</h2></div><div style="display:flex;gap:var(--sp-3);flex-wrap:wrap">${badges.map(b => `<div class="glass-card" style="padding:var(--sp-3) var(--sp-4);display:flex;align-items:center;gap:var(--sp-2)"><span style="font-size:1.3rem">${b.icon}</span><div><div style="font-weight:600;font-size:.88rem">${esc(b.name)}</div><div class="text-muted" style="font-size:.78rem">${esc(b.desc)}</div></div></div>`).join('')}</div></div>` : ''}
         <div class="section">
             <div class="section-header"><h2 class="section-title">${esc(user.name)} 的帖子</h2></div>
             <div class="thread-list">${threads.length ? threads.sort((a, b) => b.createdAt - a.createdAt).map(t => renderThreadRow(t)).join('') : '<div class="glass-card" style="text-align:center;padding:32px"><p class="text-muted">暂无帖子</p></div>'}</div>
@@ -1004,6 +1320,129 @@ function adminDeleteUser(userId) {
     showToast('用户已删除', 'success');
     switchAdminTab('users');
     renderAdmin();
+}
+
+// === MARKDOWN PARSER ===
+function renderThreadContent(content) {
+    if (!content) return '';
+    if (content.trim().startsWith('<')) return content;
+    return renderMarkdown(content);
+}
+function renderMarkdown(md) {
+    if (!md) return '';
+    let html = esc(md);
+    // Code blocks (``` ... ```)
+    html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
+        return `<pre><code class="lang-${lang || 'text'}">${highlightCode(code.trim(), lang)}</code></pre>`;
+    });
+    // Inline code
+    html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    // Headings
+    html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+    html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+    html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+    // Bold + italic
+    html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
+    html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+    html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // Blockquote
+    html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+    // Images
+    html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;border-radius:8px;margin:8px 0">');
+    // Links
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // Unordered lists
+    html = html.replace(/^(?:- (.+)\n?)+/gm, (match) => {
+        const items = match.trim().split('\n').map(l => `<li>${l.replace(/^- /, '')}</li>`).join('');
+        return `<ul>${items}</ul>`;
+    });
+    // Ordered lists
+    html = html.replace(/^(?:\d+\. (.+)\n?)+/gm, (match) => {
+        const items = match.trim().split('\n').map(l => `<li>${l.replace(/^\d+\. /, '')}</li>`).join('');
+        return `<ol>${items}</ol>`;
+    });
+    // Horizontal rule
+    html = html.replace(/^---$/gm, '<hr>');
+    // Paragraphs (wrap remaining loose lines)
+    html = html.replace(/^(?!<[a-z/])((?!^\s*$).+)$/gm, '<p>$1</p>');
+    // Clean up double paragraphs
+    html = html.replace(/<p><\/p>/g, '');
+    // @mentions
+    html = html.replace(/@(\S+)/g, '<span class="mention" data-user="$1">@$1</span>');
+    return html;
+}
+
+function highlightCode(code, lang) {
+    const keywords = {
+        js: /\b(const|let|var|function|return|if|else|for|while|class|import|export|from|default|new|this|async|await|try|catch|throw|typeof|instanceof|switch|case|break|continue|do|in|of|void|null|undefined|true|false)\b/g,
+        javascript: null, python: /\b(def|class|import|from|return|if|elif|else|for|while|try|except|finally|with|as|lambda|yield|raise|pass|break|continue|and|or|not|in|is|True|False|None|print|self)\b/g,
+        css: /\b(color|background|margin|padding|border|display|position|font|width|height|flex|grid|transform|transition|animation|overflow|z-index|opacity)\b/g,
+        html: /&(amp|lt|gt|quot|#39);|<\/?[a-z][a-z0-9]*[^>]*>/gi,
+        rust: /\b(fn|let|mut|pub|struct|enum|impl|trait|use|mod|crate|self|super|where|match|if|else|for|while|loop|return|break|continue|async|await|move|ref|type|const|static|unsafe|extern)\b/g,
+        go: /\b(func|package|import|return|if|else|for|range|switch|case|default|var|const|type|struct|interface|map|chan|go|defer|select|break|continue|nil|true|false)\b/g,
+        bash: /\b(echo|cd|ls|mkdir|rm|cp|mv|cat|grep|sed|awk|chmod|chown|sudo|apt|yum|pip|npm|git|docker|export|source|if|then|else|fi|for|do|done|while|case|esac)\b/g,
+        text: null,
+    };
+    const kw = keywords[lang] || keywords.js;
+    if (!kw) return code;
+    // Simple highlighting: keywords, strings, comments
+    let result = code;
+    result = result.replace(/(["'`])(?:(?!\1|\\).|\\.)*\1/g, '<span class="hl-str">$&</span>');
+    result = result.replace(/(\/\/.*$|#.*$)/gm, '<span class="hl-cmt">$&</span>');
+    if (kw) result = result.replace(kw, '<span class="hl-kw">$&</span>');
+    return result;
+}
+
+// === DRAFT AUTO-SAVE ===
+let draftTimer = null;
+function autoSaveDraft() {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+        if (!currentUser) return;
+        const cat = document.getElementById('threadCategory')?.value;
+        const title = document.getElementById('threadTitle')?.value || '';
+        const content = document.getElementById('threadEditor')?.value || '';
+        if (!cat) return;
+        const key = `vf_draft_${cat}`;
+        if (title || content) {
+            localStorage.setItem(key, JSON.stringify({ title, content, savedAt: Date.now() }));
+        } else {
+            localStorage.removeItem(key);
+        }
+    }, 1000);
+}
+function loadDraft(catId) {
+    const raw = localStorage.getItem(`vf_draft_${catId}`);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { return null; }
+}
+function clearDraft(catId) {
+    localStorage.removeItem(`vf_draft_${catId}`);
+}
+
+// === IMAGE PASTE ===
+function handleEditorPaste(e) {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+        if (item.type.startsWith('image/')) {
+            e.preventDefault();
+            const file = item.getAsFile();
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                const editor = document.getElementById('threadEditor');
+                const pos = editor.selectionStart;
+                const before = editor.value.slice(0, pos);
+                const after = editor.value.slice(pos);
+                const md = `\n![图片](${ev.target.result})\n`;
+                editor.value = before + md + after;
+                editor.selectionStart = editor.selectionEnd = pos + md.length;
+                autoSaveDraft();
+            };
+            reader.readAsDataURL(file);
+            break;
+        }
+    }
 }
 
 // --- Utilities ---
