@@ -88,39 +88,9 @@ function getOnlineCount() {
 // --- Sample Data ---
 function initSampleData() {
     if (DB.getThreads().length > 0) return;
-
-    const users = [
-        { id: 'u1', name: 'Vectrol', email: 'admin@vectrol.com', password: '123456', bio: '社区管理员', avatarColor: '#6366f1', score: 999, createdAt: Date.now() - 86400000 * 30 },
-        { id: 'u2', name: '张三', email: 'zhang@example.com', password: '123456', bio: '前端开发者', avatarColor: '#3b82f6', score: 156, createdAt: Date.now() - 86400000 * 20 },
-        { id: 'u3', name: '李四', email: 'li@example.com', password: '123456', bio: 'AI 研究员', avatarColor: '#8b5cf6', score: 230, createdAt: Date.now() - 86400000 * 15 },
-        { id: 'u4', name: '王五', email: 'wang@example.com', password: '123456', bio: '设计师', avatarColor: '#ec4899', score: 88, createdAt: Date.now() - 86400000 * 10 },
-    ];
-
-    const threads = [
-        { id: 't1', categoryId: 'general', userId: 'u1', title: '欢迎来到 Vectrol Forum！社区规范与使用指南', content: '<p>大家好！欢迎来到 Vectrol Forum —— 一个面向开发者的技术交流社区。</p><p>本社区使用 <strong>macOS Liquid Glass</strong> 设计语言打造，旨在提供优雅、高效的讨论体验。</p><h2>社区规范</h2><ul><li>尊重每一位社区成员，友善交流</li><li>分享有价值的技术内容和经验</li><li>提问前先搜索，提问时提供足够上下文</li><li>禁止发布广告、恶意链接等垃圾内容</li></ul><h2>积分体系</h2><p>社区采用积分激励机制：</p><ul><li>发布帖子 <strong>+5</strong> 积分</li><li>发表回复 <strong>+2</strong> 积分</li><li>获得点赞 <strong>+1</strong> 积分</li></ul><p>高积分用户将获得更多社区权限。祝大家在这里有所收获！</p>', tags: ['公告', '指南'], pinned: true, locked: false, views: 1024, createdAt: Date.now() - 86400000 * 30 },
-        { id: 't2', categoryId: 'tech', userId: 'u2', title: 'Vue 3 Composition API 最佳实践与性能优化', content: '<p>在大型项目中全面使用 Composition API 一段时间后，总结了一些实用的最佳实践。</p><h2>1. 逻辑复用：Composables</h2><p>将可复用逻辑提取为 composable 函数，比 Mixins 更清晰：</p><pre><code>// useCounter.js\nimport { ref, computed } from \'vue\'\n\nexport function useCounter(initial = 0) {\n  const count = ref(initial)\n  const doubled = computed(() => count.value * 2)\n  const increment = () => count.value++\n  return { count, doubled, increment }\n}</code></pre><h2>2. 响应式数据选择</h2><ul><li><code>ref</code> — 适合基础类型和简单对象</li><li><code>reactive</code> — 适合复杂嵌套对象（注意解构丢失响应性）</li><li><code>computed</code> — 派生状态，自动缓存</li></ul><h2>3. 性能优化技巧</h2><ul><li>使用 <code>shallowRef</code> 减少大对象的深度响应式开销</li><li>合理使用 <code>v-memo</code> 和 <code>defineComponent</code></li><li>组件懒加载：<code>defineAsyncComponent</code></li></ul><p>欢迎大家分享自己的经验！</p>', tags: ['Vue', '前端', '最佳实践'], pinned: false, locked: false, views: 589, createdAt: Date.now() - 86400000 * 14 },
-        { id: 't3', categoryId: 'design', userId: 'u4', title: 'macOS Liquid Glass 设计语言深度解析', content: '<p>Apple 在 macOS 中引入的 Liquid Glass 设计语言代表了 UI 设计的新方向。本文将深入解析其核心设计理念。</p><h2>设计原则</h2><ul><li><strong>层次深度</strong> — 通过 blur、opacity 和 layering 创建空间感</li><li><strong>材质真实感</strong> — 模拟真实玻璃的光学特性</li><li><strong>动态响应</strong> — 元素随交互产生流畅的形态变化</li><li><strong>克制用色</strong> — 以内容为中心，装饰为辅</li></ul><h2>CSS 实现要点</h2><pre><code>.liquid-glass {\n  /* 背景：低透明度 + 高饱和度 */\n  background: rgba(255, 255, 255, 0.15);\n  backdrop-filter: blur(20px) saturate(180%);\n  \n  /* 边框：微妙的高光 */\n  border: 1px solid rgba(255, 255, 255, 0.2);\n  \n  /* 阴影：多层叠加 */\n  box-shadow: \n    inset 0 1px 0 rgba(255, 255, 255, 0.3),\n    0 8px 32px rgba(0, 0, 0, 0.1);\n  \n  /* 圆角：大半径 */\n  border-radius: 16px;\n}</code></pre><h2>适配暗色模式</h2><p>暗色模式下需要降低背景不透明度，增强边框对比度，确保可读性。</p>', tags: ['设计', 'CSS', 'Apple'], pinned: false, locked: false, views: 432, createdAt: Date.now() - 86400000 * 10 },
-        { id: 't4', categoryId: 'ai', userId: 'u3', title: '2025 AI 技术趋势：Agent、多模态与开源生态', content: '<p>AI 领域正在经历快速迭代。以下是我对当前技术趋势的观察和思考。</p><h2>三大核心趋势</h2><h3>1. AI Agent 落地</h3><p>从单纯的对话式 AI 向具备工具使用、规划和执行能力的 Agent 演进。ReAct、Tool-use 等范式逐渐成熟。</p><h3>2. 多模态融合</h3><p>文本、图像、音频、视频的统一理解与生成能力大幅提升。GPT-4V、Gemini 等模型展示了强大的跨模态能力。</p><h3>3. 开源追赶</h3><p>Llama、Qwen、DeepSeek 等开源模型在多个基准上接近甚至超越闭源模型，降低了 AI 应用的门槛。</p><blockquote>AI 不会取代开发者，但会使用 AI 的开发者会取代不会使用的。</blockquote><p>你怎么看这些趋势？欢迎讨论。</p>', tags: ['AI', '趋势', '讨论'], pinned: false, locked: false, views: 756, createdAt: Date.now() - 86400000 * 5 },
-        { id: 't5', categoryId: 'projects', userId: 'u2', title: '[开源] 轻量级 Markdown 编辑器 — 支持实时预览与导出', content: '<p>分享一个我最近做的开源项目：一个轻量级的 Markdown 编辑器。</p><h2>功能特性</h2><ul><li>实时预览，支持 GFM 语法</li><li>代码高亮（支持 100+ 语言）</li><li>导出 PDF / HTML</li><li>暗色 / 亮色主题</li><li>快捷键支持</li><li>纯前端，无后端依赖</li></ul><h2>技术栈</h2><p>Vue 3 + TypeScript + CodeMirror 6</p><p>项目还在持续完善中，欢迎提 Issue 和 PR！</p>', tags: ['开源', '项目', 'Markdown'], pinned: false, locked: false, views: 234, createdAt: Date.now() - 86400000 * 3 },
-        { id: 't6', categoryId: 'help', userId: 'u4', title: 'CSS backdrop-filter 在 Firefox 上失效的解决方案', content: '<p>在 Chrome/Safari 上正常显示的毛玻璃效果，在 Firefox 上完全没有效果。</p><p>已经尝试过加 <code>-webkit-backdrop-filter</code> 前缀，但 Firefox 不需要 webkit 前缀。</p><p>环境信息：</p><ul><li>Firefox 128.0</li><li>Windows 11</li><li>没有使用 iframe</li></ul><p>有遇到过类似问题的朋友吗？</p>', tags: ['CSS', 'Firefox', '求助'], pinned: false, locked: false, views: 167, createdAt: Date.now() - 86400000 * 1 },
-    ];
-
-    const replies = [
-        { id: 'r1', threadId: 't1', userId: 'u2', content: '社区氛围很好，界面设计也很精致。期待和大家一起交流技术！', createdAt: Date.now() - 86400000 * 27 },
-        { id: 'r2', threadId: 't1', userId: 'u3', content: 'Liquid Glass 效果确实很赞，比传统的毛玻璃更有质感。管理员辛苦了！', createdAt: Date.now() - 86400000 * 26 },
-        { id: 'r3', threadId: 't1', userId: 'u4', content: '终于有一个好看的技术论坛了，已收藏。', createdAt: Date.now() - 86400000 * 25 },
-        { id: 'r4', threadId: 't2', userId: 'u3', content: '写得很详细！补充一点：<code>shallowRef</code> 在处理大型列表时性能提升明显，推荐在虚拟滚动场景中使用。', createdAt: Date.now() - 86400000 * 13 },
-        { id: 'r5', threadId: 't2', userId: 'u4', content: '有没有考虑写一个 composables 工具库？像 VueUse 那样但更轻量的。', createdAt: Date.now() - 86400000 * 12 },
-        { id: 'r6', threadId: 't3', userId: 'u2', content: '这个总结很全面！补充一个点：Liquid Glass 在不同光线下的动态表现也是设计的关键，Apple 用了大量的环境光模拟。', createdAt: Date.now() - 86400000 * 9 },
-        { id: 'r7', threadId: 't4', userId: 'u2', content: 'Agent 确实是今年最值得关注的方向。目前 LangChain 和 CrewAI 的生态比较成熟，但性能开销还是个问题。', createdAt: Date.now() - 86400000 * 4 },
-        { id: 'r8', threadId: 't4', userId: 'u4', content: '作为设计师，我更关注 AI 在创意领域的应用。目前 Midjourney 和 Stable Diffusion 的商业化路径越来越清晰了。', createdAt: Date.now() - 86400000 * 3 },
-        { id: 'r9', threadId: 't6', userId: 'u2', content: '这个问题我遇到过！Firefox 需要在 <code>about:config</code> 中开启 <code>layout.css.backdrop-filter.enabled</code>。另外确保元素没有设置 <code>overflow: hidden</code> 在父级。', createdAt: Date.now() - 86400000 * 0.5 },
-        { id: 'r10', threadId: 't5', userId: 'u3', content: '功能很实用！建议加上协作编辑功能，用 Yjs 做 CRDT 同步，这样可以多人实时编辑。', createdAt: Date.now() - 86400000 * 2 },
-    ];
-
-    DB.setUsers(users);
-    DB.setThreads(threads);
-    DB.setReplies(replies);
+    DB.setUsers([]);
+    DB.setThreads([]);
+    DB.setReplies([]);
 }
 
 // --- Theme ---
