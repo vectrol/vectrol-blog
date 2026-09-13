@@ -16,6 +16,14 @@ const DB = {
     setWeekly: (v) => localStorage.setItem('vf_weekly', JSON.stringify(v)),
     getWeeklyTime: () => parseInt(localStorage.getItem('vf_weekly_time') || '0'),
     setWeeklyTime: (v) => localStorage.setItem('vf_weekly_time', String(v)),
+    getBookmarks: () => JSON.parse(localStorage.getItem('vf_bookmarks') || '[]'),
+    setBookmarks: (v) => localStorage.setItem('vf_bookmarks', JSON.stringify(v)),
+    getNotifications: () => JSON.parse(localStorage.getItem('vf_notifications') || '[]'),
+    setNotifications: (v) => localStorage.setItem('vf_notifications', JSON.stringify(v)),
+    getReports: () => JSON.parse(localStorage.getItem('vf_reports') || '[]'),
+    setReports: (v) => localStorage.setItem('vf_reports', JSON.stringify(v)),
+    getOnlineUsers: () => JSON.parse(localStorage.getItem('vf_online') || '{}'),
+    setOnlineUsers: (v) => localStorage.setItem('vf_online', JSON.stringify(v)),
 };
 
 // --- Categories ---
@@ -42,14 +50,40 @@ let currentUser = DB.getCurrentUser();
 let currentPage = 'home';
 let currentCategoryId = null;
 let currentThreadId = null;
+let threadSortMode = 'latest';
+let currentPageNum = 1;
+const PAGE_SIZE = 10;
+let replyingTo = null;
+let activeMention = null;
 
 // --- Init ---
 document.addEventListener('DOMContentLoaded', () => {
     initTheme();
     initSampleData();
     updateAuthUI();
+    trackOnline();
     navigateTo('home');
 });
+
+function trackOnline() {
+    if (!currentUser) return;
+    const online = DB.getOnlineUsers();
+    online[currentUser.id] = Date.now();
+    DB.setOnlineUsers(online);
+    setInterval(() => {
+        if (!currentUser) return;
+        const o = DB.getOnlineUsers();
+        o[currentUser.id] = Date.now();
+        const cutoff = Date.now() - 120000;
+        Object.keys(o).forEach(k => { if (o[k] < cutoff) delete o[k]; });
+        DB.setOnlineUsers(o);
+    }, 30000);
+}
+function getOnlineCount() {
+    const online = DB.getOnlineUsers();
+    const cutoff = Date.now() - 120000;
+    return Object.values(online).filter(t => t > cutoff).length;
+}
 
 // --- Sample Data ---
 function initSampleData() {
@@ -127,6 +161,7 @@ function navigateTo(page, data) {
         case 'weekly': navigateToWeekly(); break;
         case 'profile': renderProfile(data); break;
         case 'my-threads': renderMyThreads(); break;
+        case 'bookmarks': renderBookmarks(); break;
         case 'settings': renderSettings(); break;
     }
 }
@@ -208,7 +243,6 @@ document.addEventListener('click', (e) => {
 
 // --- Home ---
 function renderHome() {
-    // Stats
     const threads = DB.getThreads();
     const replies = DB.getReplies();
     const users = DB.getUsers();
@@ -216,9 +250,8 @@ function renderHome() {
     document.getElementById('statThreads').textContent = threads.length;
     document.getElementById('statReplies').textContent = replies.length;
     document.getElementById('statUsers').textContent = users.length;
-    document.getElementById('statToday').textContent = today;
+    document.getElementById('statOnline').textContent = getOnlineCount();
 
-    // Categories
     const catList = document.getElementById('categoryList');
     catList.innerHTML = CATEGORIES.map(cat => {
         const catThreads = threads.filter(t => t.categoryId === cat.id);
@@ -237,20 +270,47 @@ function renderHome() {
             </div>`;
     }).join('');
 
-    // Latest threads
-    const latest = threads.sort((a, b) => {
-        const aLast = replies.filter(r => r.threadId === a.id).sort((x, y) => y.createdAt - x.createdAt)[0]?.createdAt || a.createdAt;
-        const bLast = replies.filter(r => r.threadId === b.id).sort((x, y) => y.createdAt - x.createdAt)[0]?.createdAt || b.createdAt;
-        return bLast - aLast;
-    }).slice(0, 8);
+    const latest = getSortedThreads(threads, 'latest').slice(0, 8);
     document.getElementById('latestThreads').innerHTML = latest.map(t => renderThreadRow(t)).join('');
-
     observeNewElements();
 }
 
 // --- Thread Row ---
+function getSortedThreads(threads, mode) {
+    const replies = DB.getReplies();
+    const pinned = threads.filter(t => t.pinned);
+    const unpinned = threads.filter(t => !t.pinned);
+    switch (mode) {
+        case 'replies': unpinned.sort((a, b) => { const ra = replies.filter(r => r.threadId === a.id).length; const rb = replies.filter(r => r.threadId === b.id).length; return rb - ra; }); break;
+        case 'likes': unpinned.sort((a, b) => (b.likes?.length || 0) - (a.likes?.length || 0)); break;
+        case 'views': unpinned.sort((a, b) => (b.views || 0) - (a.views || 0)); break;
+        default: unpinned.sort((a, b) => b.createdAt - a.createdAt);
+    }
+    return [...pinned, ...unpinned];
+}
+function paginate(items, page) {
+    const start = (page - 1) * PAGE_SIZE;
+    return { items: items.slice(start, start + PAGE_SIZE), total: items.length, pages: Math.ceil(items.length / PAGE_SIZE) };
+}
+function renderPagination(total, currentPageNum, onPageChange) {
+    const pages = Math.ceil(total / PAGE_SIZE);
+    if (pages <= 1) return '';
+    let html = '<div class="pagination">';
+    html += `<button class="btn btn-ghost btn-sm" ${currentPageNum <= 1 ? 'disabled' : ''} onclick="${onPageChange}(${currentPageNum - 1})">上一页</button>`;
+    for (let i = 1; i <= pages; i++) {
+        if (i === 1 || i === pages || (i >= currentPageNum - 2 && i <= currentPageNum + 2)) {
+            html += `<button class="btn btn-sm ${i === currentPageNum ? 'btn-primary' : 'btn-ghost'}" onclick="${onPageChange}(${i})">${i}</button>`;
+        } else if (i === currentPageNum - 3 || i === currentPageNum + 3) {
+            html += '<span class="pagination-ellipsis">...</span>';
+        }
+    }
+    html += `<button class="btn btn-ghost btn-sm" ${currentPageNum >= pages ? 'disabled' : ''} onclick="${onPageChange}(${currentPageNum + 1})">下一页</button>`;
+    html += '</div>';
+    return html;
+}
+
 function renderThreadRow(thread) {
-    const user = DB.getUsers().find(u => u.id === thread.userId) || { name: '未知', avatarColor: '#666' };
+    const user = DB.getUsers().find(u => u.id === thread.userId) || { name: '未知', avatarColor: '#666', score: 0 };
     const replies = DB.getReplies().filter(r => r.threadId === thread.id);
     const lastReply = replies.sort((a, b) => b.createdAt - a.createdAt)[0];
     const lastReplyUser = lastReply ? DB.getUsers().find(u => u.id === lastReply.userId) : null;
@@ -258,6 +318,8 @@ function renderThreadRow(thread) {
     const excerpt = stripHtml(thread.content).slice(0, 120);
     const isHot = replies.length >= 5 || thread.views >= 300;
     const isNew = Date.now() - thread.createdAt < 86400000;
+    const level = getUserLevel(user.score || 0);
+    const bookmarked = isBookmarked(thread.id);
 
     let badges = '';
     if (thread.pinned) badges += '<span class="thread-badge badge-pin">置顶</span>';
@@ -275,6 +337,7 @@ function renderThreadRow(thread) {
                 <div class="thread-excerpt">${esc(excerpt)}</div>
                 <div class="thread-meta">
                     <span style="font-weight:500;color:var(--fg-1)">${esc(user.name)}</span>
+                    <span class="user-level" style="color:${level.color}">${level.icon} ${level.name}</span>
                     ${cat ? `<span style="color:${cat.color}">${cat.name}</span>` : ''}
                     <span>${timeAgo(thread.createdAt)}</span>
                     ${thread.tags?.length ? '<span>' + thread.tags.slice(0, 3).map(t => '#' + esc(t)).join(' ') + '</span>' : ''}
@@ -313,20 +376,29 @@ function renderCategories() {
 // --- Category Detail ---
 function renderCategoryDetail(catId) {
     currentCategoryId = catId;
+    currentPageNum = 1;
     const cat = CATEGORIES.find(c => c.id === catId);
     if (!cat) { navigateTo('home'); return; }
     document.getElementById('categoryBreadcrumb').textContent = cat.name;
     document.getElementById('categoryTitle').textContent = cat.name;
     document.getElementById('categoryDesc').textContent = cat.desc;
-
-    const threads = DB.getThreads().filter(t => t.categoryId === catId).sort((a, b) => {
-        if (a.pinned && !b.pinned) return -1;
-        if (!a.pinned && b.pinned) return 1;
-        return b.createdAt - a.createdAt;
-    });
-    document.getElementById('categoryThreads').innerHTML = threads.length ? threads.map(t => renderThreadRow(t)).join('') :
-        '<div class="glass-card" style="text-align:center;padding:48px"><h3 style="color:var(--text-secondary)">暂无帖子</h3><p class="text-muted" style="margin-top:8px">成为第一个发帖的人吧！</p></div>';
+    renderCategoryThreads(catId);
 }
+function renderCategoryThreads(catId) {
+    const threads = DB.getThreads().filter(t => t.categoryId === catId);
+    const sorted = getSortedThreads(threads, threadSortMode);
+    const { items, total, pages } = paginate(sorted, currentPageNum);
+    document.getElementById('categoryThreads').innerHTML = items.length ? items.map(t => renderThreadRow(t)).join('') :
+        '<div class="glass-card" style="text-align:center;padding:48px"><h3 style="color:var(--fg-2)">暂无帖子</h3><p class="text-muted" style="margin-top:8px">成为第一个发帖的人吧！</p></div>';
+    document.getElementById('categoryPagination').innerHTML = renderPagination(total, currentPageNum, 'goCategoryPage');
+    document.getElementById('categorySort').innerHTML = `
+        <button class="btn btn-sm ${threadSortMode === 'latest' ? 'btn-primary' : 'btn-ghost'}" onclick="setCategorySort('latest')">最新</button>
+        <button class="btn btn-sm ${threadSortMode === 'replies' ? 'btn-primary' : 'btn-ghost'}" onclick="setCategorySort('replies')">最多回复</button>
+        <button class="btn btn-sm ${threadSortMode === 'likes' ? 'btn-primary' : 'btn-ghost'}" onclick="setCategorySort('likes')">最多点赞</button>
+        <button class="btn btn-sm ${threadSortMode === 'views' ? 'btn-primary' : 'btn-ghost'}" onclick="setCategorySort('views')">最多浏览</button>`;
+}
+function setCategorySort(mode) { threadSortMode = mode; currentPageNum = 1; renderCategoryThreads(currentCategoryId); }
+function goCategoryPage(page) { currentPageNum = page; renderCategoryThreads(currentCategoryId); }
 
 // --- Thread Detail ---
 function renderThreadDetail(threadId) {
@@ -334,14 +406,16 @@ function renderThreadDetail(threadId) {
     const thread = DB.getThreads().find(t => t.id === threadId);
     if (!thread) { navigateTo('home'); return; }
 
-    // Increment views
     thread.views = (thread.views || 0) + 1;
     DB.setThreads(DB.getThreads().map(t => t.id === threadId ? thread : t));
 
-    const user = DB.getUsers().find(u => u.id === thread.userId) || { name: '未知', avatarColor: '#666' };
+    const user = DB.getUsers().find(u => u.id === thread.userId) || { name: '未知', avatarColor: '#666', score: 0 };
     const cat = CATEGORIES.find(c => c.id === thread.categoryId);
     const replies = DB.getReplies().filter(r => r.threadId === threadId).sort((a, b) => a.createdAt - b.createdAt);
     const isOwner = currentUser && currentUser.id === thread.userId;
+    const level = getUserLevel(user.score || 0);
+    const bookmarked = isBookmarked(thread.id);
+    const threadLikes = (thread.likes || []).length;
 
     let badges = '';
     if (thread.pinned) badges += '<span class="thread-badge badge-pin">置顶</span>';
@@ -359,13 +433,28 @@ function renderThreadDetail(threadId) {
                 <div class="thread-detail-meta">
                     <div class="thread-avatar" style="background:${user.avatarColor}">${user.name.charAt(0)}</div>
                     <span><a href="#" onclick="navigateTo('profile','${user.id}');return false">${esc(user.name)}</a></span>
+                    <span class="user-level" style="color:${level.color}">${level.icon} ${level.name}</span>
                     <span>${timeAgo(thread.createdAt)}</span>
                     <span>${thread.views} 浏览</span>
                     <span>${replies.length} 回复</span>
                 </div>
                 <div class="thread-detail-tags">${(thread.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>
+                <div class="thread-detail-actions">
+                    <button class="btn btn-sm ${bookmarked ? 'btn-primary' : 'btn-ghost'}" onclick="toggleBookmark('${thread.id}')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="${bookmarked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+                        ${bookmarked ? '已收藏' : '收藏'}
+                    </button>
+                    <button class="btn btn-ghost btn-sm" onclick="shareThread('${thread.id}')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+                        分享
+                    </button>
+                    ${!isOwner && currentUser ? `<button class="btn btn-ghost btn-sm" onclick="reportThread('${thread.id}')">
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+                        举报
+                    </button>` : ''}
+                </div>
                 ${isOwner ? `
-                    <div style="margin-top:var(--space-md);display:flex;gap:var(--space-sm)">
+                    <div style="margin-top:var(--space-sm);display:flex;gap:var(--space-sm)">
                         <button class="btn btn-ghost btn-sm" onclick="togglePin('${thread.id}')">
                             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg>
                             ${thread.pinned ? '取消置顶' : '置顶'}
@@ -392,55 +481,30 @@ function renderThreadDetail(threadId) {
                 <div class="post-body">${thread.content}</div>
                 <div class="post-actions">
                     <button class="post-action-btn" onclick="likeThread('${thread.id}')">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-                        ${(thread.likes || []).length} 赞
-                    </button>
-                    <button class="post-action-btn" onclick="shareThread('${thread.id}')">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
-                        分享
+                        <svg viewBox="0 0 24 24" fill="${threadLikes > 0 ? 'var(--accent)' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+                        ${threadLikes} 赞
                     </button>
                 </div>
             </div>`;
 
-    // Replies
-    replies.forEach((reply, i) => {
-        const rUser = DB.getUsers().find(u => u.id === reply.userId) || { name: '未知', avatarColor: '#666' };
-        const isReplyOwner = currentUser && currentUser.id === reply.userId;
-        const isOp = reply.userId === thread.userId;
-        html += `
-            <div class="post-item" id="reply-${reply.id}">
-                <div class="post-header">
-                    <div class="thread-avatar" style="background:${rUser.avatarColor}">${rUser.name.charAt(0)}</div>
-                    <div class="post-author-info">
-                        <div class="post-author-name"><a href="#" onclick="navigateTo('profile','${rUser.id}');return false">${esc(rUser.name)}</a></div>
-                        <div class="post-date">${timeAgo(reply.createdAt)}</div>
-                    </div>
-                    ${isOp ? '<span class="post-author-badge">楼主</span>' : ''}
-                    <span class="post-floor">#${i + 2}</span>
-                </div>
-                <div class="post-body">${reply.content}</div>
-                <div class="post-actions">
-                    <button class="post-action-btn" onclick="likeReply('${reply.id}','${thread.id}')">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
-                        ${(reply.likes || []).length} 赞
-                    </button>
-                    ${isReplyOwner ? `<button class="post-action-btn" onclick="deleteReply('${reply.id}','${thread.id}')">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                        删除
-                    </button>` : ''}
-                </div>
-            </div>`;
+    // Replies with nesting
+    const topLevelReplies = replies.filter(r => !r.parentId);
+    const childReplies = replies.filter(r => r.parentId);
+    topLevelReplies.forEach((reply, i) => {
+        html += renderReplyItem(reply, i + 2, thread, childReplies);
     });
 
     // Reply form
     if (!thread.locked) {
         html += `
             <div class="reply-editor-section">
-                <h3>发表回复</h3>
+                <h3 id="replyFormTitle">${replyingTo ? '回复 @' + (DB.getUsers().find(u => u.id === replyingTo.userId)?.name || '') : '发表回复'}</h3>
+                ${replyingTo ? `<div class="replying-to"><span>回复 ${esc(DB.getUsers().find(u => u.id === replyingTo.userId)?.name || '')}</span><button class="btn btn-ghost btn-sm" onclick="cancelReply()">取消</button></div>` : ''}
                 <div class="reply-form">
                     <div class="reply-input-wrapper">
                         <div class="avatar avatar-sm" id="replyAvatar" aria-hidden="true">${currentUser ? currentUser.name.charAt(0) : '?'}</div>
-                        <textarea class="glass-textarea" placeholder="写下你的回复..." id="replyInput" rows="3" aria-label="回复内容"></textarea>
+                        <textarea class="glass-textarea" placeholder="写下你的回复... 输入 @ 提及用户" id="replyInput" rows="3" aria-label="回复内容" oninput="handleMentionInput(event)"></textarea>
+                        <div class="mention-dropdown hidden" id="mentionDropdown"></div>
                     </div>
                     <div class="reply-form-actions">
                         <button class="btn btn-primary btn-sm" onclick="submitReply('${thread.id}')">发表回复</button>
@@ -458,6 +522,72 @@ function renderThreadDetail(threadId) {
         const ra = document.getElementById('replyAvatar');
         if (ra) { ra.textContent = currentUser.name.charAt(0); ra.style.background = currentUser.avatarColor; }
     }
+}
+
+function renderReplyItem(reply, floorNum, thread, allChildReplies) {
+    const rUser = DB.getUsers().find(u => u.id === reply.userId) || { name: '未知', avatarColor: '#666', score: 0 };
+    const isReplyOwner = currentUser && currentUser.id === reply.userId;
+    const isOp = reply.userId === thread.userId;
+    const level = getUserLevel(rUser.score || 0);
+    const replyLikes = (reply.likes || []).length;
+    const children = allChildReplies.filter(r => r.parentId === reply.id);
+
+    let html = `
+        <div class="post-item" id="reply-${reply.id}">
+            <div class="post-header">
+                <div class="thread-avatar" style="background:${rUser.avatarColor}">${rUser.name.charAt(0)}</div>
+                <div class="post-author-info">
+                    <div class="post-author-name"><a href="#" onclick="navigateTo('profile','${rUser.id}');return false">${esc(rUser.name)}</a></div>
+                    <div class="post-date">${timeAgo(reply.createdAt)}</div>
+                </div>
+                ${isOp ? '<span class="post-author-badge">楼主</span>' : ''}
+                <span class="post-floor">#${floorNum}</span>
+            </div>
+            <div class="post-body">${reply.content}</div>
+            <div class="post-actions">
+                <button class="post-action-btn" onclick="likeReply('${reply.id}','${thread.id}')">
+                    <svg viewBox="0 0 24 24" fill="${replyLikes > 0 ? 'var(--accent)' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M14 9V5a3 3 0 0 0-3-3l-4 9v11h11.28a2 2 0 0 0 2-1.7l1.38-9a2 2 0 0 0-2-2.3H14z"/><path d="M7 22H4a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2h3"/></svg>
+                    ${replyLikes} 赞
+                </button>
+                ${!thread.locked ? `<button class="post-action-btn" onclick="startReplyTo('${reply.id}','${reply.userId}','${thread.id}')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                    回复
+                </button>` : ''}
+                ${isReplyOwner ? `<button class="post-action-btn" onclick="deleteReply('${reply.id}','${thread.id}')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    删除
+                </button>` : ''}
+                ${currentUser && !isReplyOwner ? `<button class="post-action-btn" onclick="reportReply('${reply.id}','${thread.id}')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+                    举报
+                </button>` : ''}
+            </div>
+        </div>`;
+
+    // Nested children
+    if (children.length > 0) {
+        html += '<div class="reply-children">';
+        children.forEach(child => { html += renderReplyItem(child, '↩', thread, allChildReplies); });
+        html += '</div>';
+    }
+
+    return html;
+}
+
+function startReplyTo(replyId, userId, threadId) {
+    replyingTo = { replyId, userId, threadId };
+    const titleEl = document.getElementById('replyFormTitle');
+    const user = DB.getUsers().find(u => u.id === userId);
+    if (titleEl) titleEl.textContent = '回复 @' + (user?.name || '');
+    const input = document.getElementById('replyInput');
+    if (input) { input.focus(); input.placeholder = `回复 @${user?.name || ''}...`; }
+}
+function cancelReply() {
+    replyingTo = null;
+    const titleEl = document.getElementById('replyFormTitle');
+    if (titleEl) titleEl.textContent = '发表回复';
+    const input = document.getElementById('replyInput');
+    if (input) input.placeholder = '写下你的回复... 输入 @ 提及用户';
 }
 
 // --- Thread Actions ---
@@ -485,7 +615,12 @@ function likeThread(id) {
     if (!t) return;
     if (!t.likes) t.likes = [];
     const i = t.likes.indexOf(currentUser.id);
-    if (i === -1) { t.likes.push(currentUser.id); } else { t.likes.splice(i, 1); }
+    if (i === -1) {
+        t.likes.push(currentUser.id);
+        if (t.userId !== currentUser.id) {
+            addNotification(t.userId, 'like', currentUser.id, id, `赞了你的帖子「${t.title}」`);
+        }
+    } else { t.likes.splice(i, 1); }
     DB.setThreads(threads);
     renderThreadDetail(id);
 }
@@ -501,14 +636,75 @@ function submitReply(threadId) {
     const content = input.value.trim();
     if (!content) { showToast('请输入回复内容', 'error'); return; }
     const replies = DB.getReplies();
-    replies.push({ id: 'r' + Date.now(), threadId, userId: currentUser.id, content: esc(content).replace(/\n/g, '<br>'), likes: [], createdAt: Date.now() });
+    const reply = {
+        id: 'r' + Date.now(), threadId, userId: currentUser.id,
+        content: parseContent(content), likes: [], createdAt: Date.now(),
+        parentId: replyingTo ? replyingTo.replyId : null,
+    };
+    replies.push(reply);
     DB.setReplies(replies);
-    // Update user score
+
+    // Score
     const users = DB.getUsers();
     const u = users.find(x => x.id === currentUser.id);
     if (u) { u.score = (u.score || 0) + 2; DB.setUsers(users); currentUser.score = u.score; DB.setCurrentUser(currentUser); updateAuthUI(); }
+
+    // Notifications
+    const thread = DB.getThreads().find(t => t.id === threadId);
+    if (thread && thread.userId !== currentUser.id) {
+        addNotification(thread.userId, 'reply', currentUser.id, threadId, `回复了你的帖子「${thread.title}」`);
+    }
+    if (replyingTo && replyingTo.userId !== currentUser.id) {
+        const replyUser = DB.getUsers().find(u => u.id === replyingTo.userId);
+        addNotification(replyingTo.userId, 'mention', currentUser.id, threadId, `在回复中提到了你`);
+    }
+    // @mentions
+    const mentionMatches = content.match(/@(\S+)/g);
+    if (mentionMatches) {
+        mentionMatches.forEach(m => {
+            const name = m.slice(1);
+            const mentioned = DB.getUsers().find(u => u.name.toLowerCase() === name.toLowerCase());
+            if (mentioned && mentioned.id !== currentUser.id && mentioned.id !== thread?.userId && mentioned.id !== replyingTo?.userId) {
+                addNotification(mentioned.id, 'mention', currentUser.id, threadId, `在回复中 @了你`);
+            }
+        });
+    }
+
+    replyingTo = null;
     renderThreadDetail(threadId);
     showToast('回复成功', 'success');
+}
+
+function handleMentionInput(e) {
+    const val = e.target.value;
+    const cursorPos = e.target.selectionStart;
+    const textBefore = val.slice(0, cursorPos);
+    const mentionMatch = textBefore.match(/@(\S*)$/);
+    const dropdown = document.getElementById('mentionDropdown');
+    if (!dropdown) return;
+    if (mentionMatch && mentionMatch[1].length > 0) {
+        const query = mentionMatch[1].toLowerCase();
+        const users = DB.getUsers().filter(u => u.name.toLowerCase().includes(query) && u.id !== currentUser?.id).slice(0, 5);
+        if (users.length > 0) {
+            dropdown.innerHTML = users.map(u => `<div class="mention-option" onclick="insertMention('${esc(u.name)}')"><div class="mention-avatar" style="background:${u.avatarColor}">${u.name.charAt(0)}</div><span>${esc(u.name)}</span></div>`).join('');
+            dropdown.classList.remove('hidden');
+            return;
+        }
+    }
+    dropdown.classList.add('hidden');
+}
+function insertMention(name) {
+    const input = document.getElementById('replyInput');
+    if (!input) return;
+    const cursorPos = input.selectionStart;
+    const val = input.value;
+    const textBefore = val.slice(0, cursorPos);
+    const textAfter = val.slice(cursorPos);
+    const newTextBefore = textBefore.replace(/@\S*$/, '@' + name + ' ');
+    input.value = newTextBefore + textAfter;
+    input.selectionStart = input.selectionEnd = newTextBefore.length;
+    input.focus();
+    document.getElementById('mentionDropdown')?.classList.add('hidden');
 }
 function likeReply(replyId, threadId) {
     if (!currentUser) { showToast('请先登录', 'error'); showModal('login'); return; }
@@ -517,7 +713,12 @@ function likeReply(replyId, threadId) {
     if (!r) return;
     if (!r.likes) r.likes = [];
     const i = r.likes.indexOf(currentUser.id);
-    if (i === -1) { r.likes.push(currentUser.id); } else { r.likes.splice(i, 1); }
+    if (i === -1) {
+        r.likes.push(currentUser.id);
+        if (r.userId !== currentUser.id) {
+            addNotification(r.userId, 'like', currentUser.id, threadId, '赞了你的回复');
+        }
+    } else { r.likes.splice(i, 1); }
     DB.setReplies(replies);
     renderThreadDetail(threadId);
 }
@@ -585,11 +786,13 @@ function renderProfile(userId) {
     const threads = DB.getThreads().filter(t => t.userId === userId);
     const replies = DB.getReplies().filter(r => r.userId === userId);
     const totalLikes = threads.reduce((s, t) => s + (t.likes?.length || 0), 0) + replies.reduce((s, r) => s + (r.likes?.length || 0), 0);
+    const level = getUserLevel(user.score || 0);
 
     document.getElementById('profileContent').innerHTML = `
         <div class="glass-card profile-header-card">
             <div class="profile-avatar-lg" style="background:${user.avatarColor}">${user.name.charAt(0)}</div>
             <h2 class="profile-name">${esc(user.name)}</h2>
+            <div class="user-level-badge" style="background:${level.color}20;color:${level.color};border:1px solid ${level.color}40">${level.icon} ${level.name}</div>
             <p class="profile-bio">${esc(user.bio || '这个人很懒，什么都没写~')}</p>
             <div class="profile-stats-row">
                 <div class="profile-stat"><div class="profile-stat-value">${threads.length}</div><div class="profile-stat-label">帖子</div></div>
@@ -675,6 +878,115 @@ function observeNewElements() {
         }, { threshold: 0.1, rootMargin: '0px 0px -40px 0px' });
         document.querySelectorAll('.scroll-reveal:not(.revealed)').forEach(el => obs.observe(el));
     }, 50);
+}
+
+// --- Notifications ---
+function addNotification(userId, type, fromUserId, threadId, message) {
+    const notifs = DB.getNotifications();
+    notifs.unshift({ id: 'n' + Date.now(), userId, type, fromUserId, threadId, message, read: false, createdAt: Date.now() });
+    DB.setNotifications(notifs.slice(0, 100));
+}
+function getUnreadCount() {
+    if (!currentUser) return 0;
+    return DB.getNotifications().filter(n => n.userId === currentUser.id && !n.read).length;
+}
+function markAllRead() {
+    if (!currentUser) return;
+    const notifs = DB.getNotifications();
+    notifs.forEach(n => { if (n.userId === currentUser.id) n.read = true; });
+    DB.setNotifications(notifs);
+    renderNotifications();
+}
+function renderNotifications() {
+    const el = document.getElementById('notifList');
+    const badge = document.getElementById('notifBadge');
+    if (!el || !currentUser) return;
+    const notifs = DB.getNotifications().filter(n => n.userId === currentUser.id).slice(0, 30);
+    const unread = notifs.filter(n => !n.read).length;
+    if (badge) { badge.textContent = unread || ''; badge.style.display = unread ? 'flex' : 'none'; }
+    if (notifs.length === 0) { el.innerHTML = '<div style="text-align:center;padding:24px;color:var(--fg-3)">暂无通知</div>'; return; }
+    el.innerHTML = notifs.map(n => {
+        const from = DB.getUsers().find(u => u.id === n.fromUserId);
+        const thread = DB.getThreads().find(t => t.id === n.threadId);
+        return `<div class="notif-item ${n.read ? '' : 'unread'}" onclick="handleNotifClick('${n.id}','${n.threadId}')">
+            <div class="notif-avatar" style="background:${from?.avatarColor || '#666'}">${from ? from.name.charAt(0) : '?'}</div>
+            <div class="notif-body">
+                <div class="notif-text"><strong>${esc(from?.name || '未知')}</strong> ${esc(n.message)}</div>
+                <div class="notif-time">${timeAgo(n.createdAt)}</div>
+            </div>
+        </div>`;
+    }).join('');
+}
+function handleNotifClick(notifId, threadId) {
+    const notifs = DB.getNotifications();
+    const n = notifs.find(x => x.id === notifId);
+    if (n) { n.read = true; DB.setNotifications(notifs); }
+    toggleNotifPanel();
+    if (threadId) navigateTo('thread', threadId);
+}
+function toggleNotifPanel() {
+    const panel = document.getElementById('notifPanel');
+    const wasHidden = panel.classList.contains('hidden');
+    panel.classList.toggle('hidden');
+    if (wasHidden) renderNotifications();
+}
+
+// --- Bookmarks ---
+function toggleBookmark(threadId) {
+    if (!currentUser) { showToast('请先登录', 'error'); showModal('login'); return; }
+    const bm = DB.getBookmarks();
+    const idx = bm.findIndex(b => b.userId === currentUser.id && b.threadId === threadId);
+    if (idx === -1) { bm.push({ userId: currentUser.id, threadId, createdAt: Date.now() }); showToast('已收藏', 'success'); }
+    else { bm.splice(idx, 1); showToast('已取消收藏', 'info'); }
+    DB.setBookmarks(bm);
+    if (currentPage === 'thread') renderThreadDetail(threadId);
+    if (currentPage === 'bookmarks') renderBookmarks();
+}
+function isBookmarked(threadId) {
+    if (!currentUser) return false;
+    return DB.getBookmarks().some(b => b.userId === currentUser.id && b.threadId === threadId);
+}
+function renderBookmarks() {
+    if (!currentUser) { navigateTo('home'); return; }
+    const bm = DB.getBookmarks().filter(b => b.userId === currentUser.id);
+    const threads = bm.map(b => DB.getThreads().find(t => t.id === b.threadId)).filter(Boolean).sort((a, b) => b.createdAt - a.createdAt);
+    document.getElementById('bookmarksList').innerHTML = threads.length ? threads.map(t => renderThreadRow(t)).join('') :
+        '<div class="glass-card" style="text-align:center;padding:48px"><h3 style="color:var(--fg-2)">暂无收藏</h3><p class="text-muted" style="margin-top:8px">浏览帖子时点击收藏按钮即可添加</p></div>';
+}
+
+// --- Reports ---
+function reportThread(threadId) {
+    if (!currentUser) { showToast('请先登录', 'error'); showModal('login'); return; }
+    const reason = prompt('请输入举报原因：');
+    if (!reason) return;
+    const reports = DB.getReports();
+    reports.push({ id: 'rp' + Date.now(), type: 'thread', targetId: threadId, userId: currentUser.id, reason, status: 'pending', createdAt: Date.now() });
+    DB.setReports(reports);
+    showToast('举报已提交，感谢反馈', 'success');
+}
+function reportReply(replyId, threadId) {
+    if (!currentUser) { showToast('请先登录', 'error'); showModal('login'); return; }
+    const reason = prompt('请输入举报原因：');
+    if (!reason) return;
+    const reports = DB.getReports();
+    reports.push({ id: 'rp' + Date.now(), type: 'reply', targetId: replyId, threadId, userId: currentUser.id, reason, status: 'pending', createdAt: Date.now() });
+    DB.setReports(reports);
+    showToast('举报已提交，感谢反馈', 'success');
+}
+
+// --- User Level ---
+function getUserLevel(score) {
+    if (score >= 1000) return { name: '社区元老', icon: '👑', color: '#f59e0b' };
+    if (score >= 500) return { name: '资深用户', icon: '⭐', color: '#8b5cf6' };
+    if (score >= 200) return { name: '活跃用户', icon: '🔥', color: '#ef4444' };
+    if (score >= 50) return { name: '正式用户', icon: '✅', color: '#10b981' };
+    if (score >= 10) return { name: '新锐用户', icon: '🌱', color: '#3b82f6' };
+    return { name: '新手', icon: '👋', color: '#6b7280' };
+}
+
+// --- Parse mentions ---
+function parseContent(text) {
+    return esc(text).replace(/@(\S+)/g, '<span class="mention">@$1</span>');
 }
 
 // === WEEKLY ===
