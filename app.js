@@ -421,9 +421,11 @@ function renderThreadDetail(threadId) {
     let badges = '';
     if (thread.pinned) badges += '<span class="thread-badge badge-pin">置顶</span>';
     if (thread.locked) badges += '<span class="thread-badge badge-lock">锁定</span>';
+    const readingTime = estimateReadingTime(thread.content);
 
     let html = `
         <div class="thread-detail">
+            ${thread.pinned ? '<div class="pin-banner"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg> 此帖子已被管理员置顶</div>' : ''}
             <div class="thread-detail-header">
                 <div class="breadcrumb">
                     <a href="#" onclick="navigateTo('home')">首页</a>
@@ -438,6 +440,7 @@ function renderThreadDetail(threadId) {
                     <span>${timeAgo(thread.createdAt)}</span>
                     <span>${thread.views} 浏览</span>
                     <span>${replies.length} 回复</span>
+                    <span class="reading-time"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg> ${readingTime} 分钟阅读</span>
                 </div>
                 <div class="thread-detail-tags">${(thread.tags || []).map(t => `<span class="tag">${esc(t)}</span>`).join('')}</div>
                 <div class="thread-detail-actions">
@@ -495,7 +498,8 @@ function renderThreadDetail(threadId) {
                         ${threadLikes} 赞
                     </button>
                 </div>
-            </div>`;
+            </div>
+            ${generateTOC(thread.content)}`;
 
     // Replies with nesting
     const topLevelReplies = replies.filter(r => !r.parentId);
@@ -532,6 +536,7 @@ function renderThreadDetail(threadId) {
         const ra = document.getElementById('replyAvatar');
         if (ra) { ra.textContent = currentUser.name.charAt(0); ra.style.background = currentUser.avatarColor; }
     }
+    setTimeout(() => { addHeadingIds(thread.content, document.getElementById('threadContent')); setupPreviewCards(); }, 50);
 }
 
 function renderReplyItem(reply, floorNum, thread, allChildReplies) {
@@ -1333,10 +1338,11 @@ function renderMarkdown(md) {
     let html = esc(md);
     // Code blocks (``` ... ```)
     html = html.replace(/```(\w*)\n([\s\S]*?)```/g, (_, lang, code) => {
-        return `<pre><code class="lang-${lang || 'text'}">${highlightCode(code.trim(), lang)}</code></pre>`;
+        const langLabel = lang || 'text';
+        return `<div class="code-block"><div class="code-header"><span class="code-lang">${langLabel}</span><button class="code-copy-btn" onclick="copyCode(this)" title="复制代码"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制</button></div><pre><code class="lang-${langLabel}">${highlightCode(code.trim(), lang)}</code></pre></div>`;
     });
     // Inline code
-    html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+    html = html.replace(/`([^`\n]+)`/g, '<code class="inline-code">$1</code>');
     // Headings
     html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
     html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
@@ -1345,12 +1351,37 @@ function renderMarkdown(md) {
     html = html.replace(/\*\*\*(.+?)\*\*\*/g, '<strong><em>$1</em></strong>');
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    // Spoiler
+    html = html.replace(/&gt;spoiler\s*([\s\S]*?)(?=<br|$)/g, '<span class="spoiler" onclick="this.classList.toggle(\'revealed\')">$1</span>');
     // Blockquote
     html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+    // Tables
+    html = html.replace(/(?:^|\n)(\|.+\|\n\|[-| :]+\|\n(?:\|.+\|\n?)+)/g, (match) => {
+        const rows = match.trim().split('\n').filter(r => r.trim());
+        if (rows.length < 2) return match;
+        const headerCells = rows[0].split('|').filter(c => c.trim());
+        const bodyRows = rows.slice(2);
+        let table = '<div class="table-wrapper"><table class="md-table"><thead><tr>';
+        headerCells.forEach(c => { table += `<th>${c.trim()}</th>`; });
+        table += '</tr></thead><tbody>';
+        bodyRows.forEach(row => {
+            const cells = row.split('|').filter(c => c.trim());
+            table += '<tr>';
+            cells.forEach(c => { table += `<td>${c.trim()}</td>`; });
+            table += '</tr>';
+        });
+        table += '</tbody></table></div>';
+        return '\n' + table;
+    });
     // Images
-    html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" style="max-width:100%;border-radius:8px;margin:8px 0">');
+    html = html.replace(/!\[([^\]]*)\]\(([^)]+)\)/g, '<img src="$2" alt="$1" class="post-img" onclick="openLightbox(\'$2\',\'$1\')" loading="lazy">');
     // Links
     html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+    // Video embeds
+    html = html.replace(/https?:\/\/(?:www\.)?bilibili\.com\/video\/(BV\w+)/g, '<div class="video-embed"><iframe src="//player.bilibili.com/player.html?bvid=$1&high_quality=1" scrolling="no" frameborder="0" allowfullscreen></iframe></div>');
+    html = html.replace(/https?:\/\/(?:www\.)?youtube\.com\/watch\?v=([\w-]+)/g, '<div class="video-embed"><iframe src="https://www.youtube.com/embed/$1" frameborder="0" allowfullscreen></iframe></div>');
+    html = html.replace(/https?:\/\/youtu\.be\/([\w-]+)/g, '<div class="video-embed"><iframe src="https://www.youtube.com/embed/$1" frameborder="0" allowfullscreen></iframe></div>');
+    html = html.replace(/https?:\/\/(?:www\.)?vimeo\.com\/(\d+)/g, '<div class="video-embed"><iframe src="https://player.vimeo.com/video/$1" frameborder="0" allowfullscreen></iframe></div>');
     // Unordered lists
     html = html.replace(/^(?:- (.+)\n?)+/gm, (match) => {
         const items = match.trim().split('\n').map(l => `<li>${l.replace(/^- /, '')}</li>`).join('');
@@ -1780,8 +1811,104 @@ function renderWeeklyCards() {
 
 // --- Keyboard ---
 document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') { closeModal(); document.querySelector('.preview-modal')?.remove(); }
+    if (e.key === 'Escape') { closeModal(); closeLightbox(); document.querySelector('.preview-modal')?.remove(); }
 });
+
+// === CODE COPY ===
+function copyCode(btn) {
+    const code = btn.closest('.code-block').querySelector('code').textContent;
+    navigator.clipboard?.writeText(code).then(() => {
+        btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg> 已复制';
+        setTimeout(() => { btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg> 复制'; }, 2000);
+    });
+}
+
+// === IMAGE LIGHTBOX ===
+function openLightbox(src, alt) {
+    if (!src || src.startsWith('data:')) return;
+    const overlay = document.createElement('div');
+    overlay.className = 'lightbox-overlay';
+    overlay.onclick = () => overlay.remove();
+    overlay.innerHTML = `<div class="lightbox-content"><img src="${src}" alt="${alt || ''}"><button class="lightbox-close" onclick="this.closest('.lightbox-overlay').remove()">&times;</button></div>`;
+    document.body.appendChild(overlay);
+}
+function closeLightbox() { document.querySelector('.lightbox-overlay')?.remove(); }
+
+// === READING TIME ===
+function estimateReadingTime(content) {
+    const text = stripHtml(renderThreadContent(content));
+    const chars = text.length;
+    const minutes = Math.max(1, Math.ceil(chars / 500));
+    return minutes;
+}
+
+// === EMOJI PICKER ===
+const EMOJI_DATA = ['😀','😂','🤣','😊','😍','🥰','😎','🤔','😅','😢','🔥','👍','👎','❤️','💯','🎉','🚀','✨','💡','⚡','🛠️','💻','🎮','📱','🎯','📊','🔮','🎨','✍️','📚','🏆','🌟','💪','🙏','👀','🫡','🥳','😇','🤗','😎','🫶','🤘','✌️','🤙','👋','🤝','💥','🌈','🍀','☕','🍕','🎸','🎬','📷','🔑','📌','💎','🧪','⚙️','🔗','📝'];
+let emojiPickerOpen = false;
+function toggleEmojiPicker() {
+    const picker = document.getElementById('emojiPicker');
+    if (!picker) return;
+    emojiPickerOpen = !emojiPickerOpen;
+    if (emojiPickerOpen) {
+        picker.innerHTML = EMOJI_DATA.map(e => `<span class="emoji-option" onclick="insertEmoji('${e}')">${e}</span>`).join('');
+        picker.classList.remove('hidden');
+    } else {
+        picker.classList.add('hidden');
+    }
+}
+function insertEmoji(emoji) {
+    const editor = document.getElementById('threadEditor');
+    if (!editor) return;
+    const pos = editor.selectionStart;
+    editor.value = editor.value.slice(0, pos) + emoji + editor.value.slice(pos);
+    editor.selectionStart = editor.selectionEnd = pos + emoji.length;
+    editor.focus();
+    autoSaveDraft();
+    toggleEmojiPicker();
+}
+
+// === TOC GENERATION ===
+function generateTOC(content) {
+    const headings = [];
+    const regex = /^(#{1,3}) (.+)$/gm;
+    let match;
+    while ((match = regex.exec(content)) !== null) {
+        const level = match[1].length;
+        const text = match[2];
+        const id = 'toc-' + text.toLowerCase().replace(/[^\w\u4e00-\u9fff]+/g, '-');
+        headings.push({ level, text, id });
+    }
+    if (headings.length < 2) return '';
+    let toc = '<div class="post-toc"><div class="toc-title">目录</div><ul>';
+    headings.forEach(h => {
+        toc += `<li class="toc-level-${h.level}"><a href="#${h.id}" onclick="event.preventDefault();document.getElementById('${h.id}')?.scrollIntoView({behavior:\'smooth\'})">${esc(h.text)}</a></li>`;
+    });
+    toc += '</ul></div>';
+    return toc;
+}
+function addHeadingIds(content, el) {
+    el.querySelectorAll('h1,h2,h3').forEach(h => {
+        const id = 'toc-' + h.textContent.toLowerCase().replace(/[^\w\u4e00-\u9fff]+/g, '-');
+        h.id = id;
+    });
+}
+
+// === CONTENT PREVIEW CARD ===
+function setupPreviewCards() {
+    document.querySelectorAll('.post-body a[href]').forEach(a => {
+        a.addEventListener('mouseenter', (e) => {
+            if (a.querySelector('.preview-card')) return;
+            const card = document.createElement('div');
+            card.className = 'preview-card';
+            card.textContent = a.href;
+            a.style.position = 'relative';
+            a.appendChild(card);
+        });
+        a.addEventListener('mouseleave', () => {
+            a.querySelector('.preview-card')?.remove();
+        });
+    });
+}
 
 // Hash nav
 window.addEventListener('hashchange', () => {
